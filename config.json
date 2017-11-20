@@ -1,0 +1,46 @@
+{
+"NodeName":"master1",
+
+"MasterNode":
+   {
+    "master1":"10.7.75.60",
+    "master2":"10.7.75.61"
+   },
+
+
+"AgentNode":
+   {
+     "slave1":"10.7.75.62",
+     "slave2":"10.7.75.63",
+     "slave3":"10.7.75.64"
+   },
+
+"RunHost":
+    {
+      "sms1":["slave1","slaver2","slave3"],
+      "sms2":["slave1","slaver2","slave3"],
+      "sms3":["slave1","slaver2","slave3"],
+      "sms4":["slave2","slaver3","slave1"],
+      "sms5":["slave2","slaver3","slave1"],
+      "sms6":["slave2","slaver3","slave1"],
+      "sms7":["slave3","slaver1","slave2"],
+      "sms8":["slave3","slaver1","slave2"],
+      "sms9":["slave3","slaver1","slave2"],
+      "sms10":["slave3","slaver1","slave2"]
+    },
+
+  "Ingest_SMS":
+  {
+    "path":"/usr/local/smsserver/bin",
+    "cmd" :"oristar_sms_server",
+    "parameter":"/etc/smsconfig/sms_config.ini",
+    "port":12340
+  },
+
+  "TimeOut":
+  {
+    "slaver_regist":30
+  }
+
+}
+
