@@ -163,7 +163,7 @@ class AgentMgr:
         self.cond = threading.Condition()
         self.loger = loger
         self.localhost_name = localhost_name
-        self.prevous_stat_matrix = '' #记录上次状态矩阵的状态
+        self.prevous_master_stat_txt = '' #记录上次状态矩阵的状态和当前的命令字
 
         for agent_name in agent_ls:
             self.agent_regist_timeout[agent_name] = 0
@@ -192,12 +192,15 @@ class AgentMgr:
             time.sleep(2)
 
     def start_monitor(self):
+        self.start_agent_monitor()
+        self.process_th.start()
+        self.delay_switch_thread.start()
+
+    def start_agent_monitor(self):
         for agent in self.agent_ls:
             self.agent_mgr[agent] = agent_monitor.MonitorAgent('/scheduler/agent', agent, self.msg_queue,
                                                                self.regist_timeout, self.zkctrl,self.localhost_name,self.loger)
             self.agent_mgr[agent].start_monitor()
-        self.process_th.start()
-        self.delay_switch_thread.start()
 
 
     def start_agent(self,ip):
@@ -207,185 +210,191 @@ class AgentMgr:
         os.system(cmd)
 
     def process(self):
-        while True:
-            msg = self.msg_queue.get()
-            msg = msg.replace("'", '"').replace('u"','"')  # 去除u,替换单引号成双引号
+        try:
+            while True:
+                msg = self.msg_queue.get()
+                msg = msg.replace("'", '"').replace('u"','"')  # 去除u,替换单引号成双引号
 
-            log =  "%s :get msg %s"%(sys._getframe().f_code.co_name,msg)
-            self.loger.info(log)
-            agent_stat = json.loads(msg)
-            msg_name = agent_stat.keys()[0]
-            agent_name = ''
-            sms_name = ''
-            if '@' in msg_name:                                 # sms消息：键值为agent_name@sms_name
-                agent_name,sms_name = msg_name.split('@')
-            else:                                               # agent消息
-                agent_name = msg_name
+                log =  "%s :get msg %s"%(sys._getframe().f_code.co_name,msg)
+                self.loger.info(log)
+                agent_stat = json.loads(msg)
+                msg_name = agent_stat.keys()[0]
+                agent_name = ''
+                sms_name = ''
+                if '@' in msg_name:                                 # sms消息：键值为agent_name@sms_name
+                    agent_name,sms_name = msg_name.split('@')
+                else:                                               # agent消息
+                    agent_name = msg_name
 
-            monitor_stat = agent_stat[msg_name]
-            if agent_name in self.agent_ls and sms_name is '':   # slave状态
-                if monitor_stat[0] == 'regist':                  # agent注册后给agent分派任务，并监听sms是否运行
-                    self.agent_stat.update_agent_state(agent_name,'regist')
-                    self.agent_regist_timeout[agent_name] = 0
-                elif monitor_stat[0] == 'spawn':
-                    runsms_json = '{"spawn":%s}'%monitor_stat[1]
-                    runsms_json = runsms_json.replace('u','').replace("'",'"')#去除u,替换单引号成双引号
-                    task_node = '/scheduler/task/%s' % agent_name
-                    self.zkctrl.async('/scheduler/task')
-                    if self.zkctrl.exists(task_node):
-                        self.zkctrl.set(task_node,runsms_json)
-                    else:
-                        self.zkctrl.create(task_node, runsms_json,1)   # 下发任务,即更新task的状态
-                    self.agent_cmd_txt[agent_name] = runsms_json       # 记录当前命令语句
-		    
-                    #找到是否有启动的sms
-                    run_sms = json.loads(runsms_json)
-                    is_run = False
-                    for sms_id in run_sms['spawn']:
-                        if run_sms['spawn'][sms_id] == 1:
-                            is_run = True
-                            break
-                    sms_ls = []
-                    if is_run:
-                        sms_ls = self.zkctrl.get_children(u'/scheduler/agent/sms',
-                                                     self.agent_mgr[agent_name].watcher_sms)     # 监听此agent下的字节点sms
-                        self.agent_stat.update_agent_state(agent_name,'spawning',runsms_json)# 更新状态到spawning
+                monitor_stat = agent_stat[msg_name]
+                if agent_name in self.agent_ls and sms_name is '':   # slave状态
+                    if monitor_stat[0] == 'regist':                  # agent注册后给agent分派任务，并监听sms是否运行
+                        self.agent_stat.update_agent_state(agent_name,'regist')
+                        self.agent_regist_timeout[agent_name] = 0
+                    elif monitor_stat[0] == 'spawn':
+                        runsms_json = '{"spawn":%s}'%monitor_stat[1]
+                        runsms_json = runsms_json.replace('u','').replace("'",'"')#去除u,替换单引号成双引号
+                        task_node = '/scheduler/task/%s' % agent_name
+                        self.zkctrl.async('/scheduler/task')
+                        if self.zkctrl.exists(task_node):
+                            self.zkctrl.set(task_node,runsms_json)
+                        else:
+                            self.zkctrl.create(task_node, runsms_json,1)   # 下发任务,即更新task的状态
+                        self.agent_cmd_txt[agent_name] = runsms_json       # 记录当前命令语句
 
-                    #检测是否sms已经运行
-                    if sms_ls:
+                        #找到是否有启动的sms
+                        run_sms = json.loads(runsms_json)
+                        is_run = False
+                        for sms_id in run_sms['spawn']:
+                            if run_sms['spawn'][sms_id] == 1:
+                                is_run = True
+                                break
+                        sms_ls = []
+                        if is_run:
+                            sms_ls = self.zkctrl.get_children(u'/scheduler/agent/sms',
+                                                         self.agent_mgr[agent_name].watcher_sms)     # 监听此agent下的字节点sms
+                            self.agent_stat.update_agent_state(agent_name,'spawning',runsms_json)# 更新状态到spawning
+
+                        #检测是否sms已经运行
+                        if sms_ls:
+                            for sms in sms_ls:
+                                agt_id,sms_id = sms.split('@')
+                                if agt_id == agent_name:
+                                        sms_stat = self.zkctrl.get('/scheduler/agent/sms/%s' % (sms),
+                                                                   self.agent_mgr[agent_name].watcher_sms)
+                                        self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
+
+                    elif monitor_stat[0] == 'regist_timeout':
+                        self.agent_regist_timeout[agent_name] += 1
+                        if self.agent_regist_timeout[agent_name] == 3:                      #3检测超时则启动接管
+                            self.agent_stat.update_agent_state(agent_name,'regist_timeout') #启动接管
+
+                        host_ip = self.agent_stat.get_agent_host_ip(agent_name)         #尝试启动主机的agent
+                        log =  "check agent %s:%s timeout ,so start it "%(agent_name,host_ip)
+                        self.loger.info(log)
+
+                        #始终检测
+                        self.start_agent(agent_name)
+                        self.agent_mgr[agent_name].restart_monitor(self.regist_timeout)
+
+                    elif monitor_stat[0] == 'change':
+                        pass
+
+                    elif monitor_stat[0] == 'delete':
+                        host_ip = self.agent_stat.get_agent_host_ip(agent_name)  # 尝试启动主机的agent
+                        self.start_agent(agent_name) #先尝试启动主机的agent
+                        self.agent_mgr[agent_name].restart_monitor(self.regist_timeout)
+
+                    elif monitor_stat[0] == 'child_change':
+                        sms_ls = self.zkctrl.get_children('/scheduler/agent/sms')
+                        rum_sms_ls = self.agent_stat.get_run_sms_in_agent(agent_name)
+                        log = 'process::child_change:',sms_ls,rum_sms_ls
+                        self.loger.info(log)
                         for sms in sms_ls:
-                            agt_id,sms_id = sms.split('@')
-                            if agt_id == agent_name:
-                                    sms_stat = self.zkctrl.get('/scheduler/agent/sms/%s' % (sms),
-                                                               self.agent_mgr[agent_name].watcher_sms)
-                                    self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
+                            agent_id, smsid =  sms.split('@')
+                            if  agent_id == agent_name:                       #只处理属于本主机的  smsid not in rum_sms_ls and
+                                sms_stat = self.zkctrl.get('/scheduler/agent/sms/%s'%(sms),self.agent_mgr[agent_name].watcher_sms)
+                                self.agent_stat.update_sms_state(agent_name,smsid,sms_stat[0])
+                    elif monitor_stat[0] == 'take_over':
+                        old_cmd_txt = self.agent_cmd_txt[agent_name]
+                        take_sms = monitor_stat[1]
+                        new_take_sms = "%s"%take_sms
+                        new_take_sms = new_take_sms.replace('u','').replace("'",'"')
+                        take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)           #因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
+                        self.zkctrl.set('/scheduler/task/%s' % agent_name, take_over_txt)                # 更新task的状态
+                        self.zkctrl.get_children('/scheduler/agent/%s' % agent_name,
+                                                 self.agent_mgr[agent_name].watcher_sms)                 # 监听此agent下的字节点sms
+                        self.agent_stat.update_agent_state(agent_name,'take_over','{"take_over":%s}'%take_sms)# 更新状态矩阵的takeover状态
 
-                elif monitor_stat[0] == 'regist_timeout':
-                    self.agent_regist_timeout[agent_name] += 1
-                    if self.agent_regist_timeout[agent_name] == 3:                      #3检测超时则启动接管
-                        self.agent_stat.update_agent_state(agent_name,'regist_timeout') #启动接管
+                    elif monitor_stat[0] == "shutdown_sms":
+                        self.agent_stat.update_agent_state(agent_name,"switching")
+                        agent_cmd_txt = self.agent_cmd_txt[agent_name]
+                        agent_cmd = json.loads(agent_cmd_txt)
+                        spawn_sms_dic = agent_cmd['spawn']
 
-                    host_ip = self.agent_stat.get_agent_host_ip(agent_name)         #尝试启动主机的agent
-                    log =  "check agent %s:%s timeout ,so start it "%(agent_name,host_ip)
-                    self.loger.info(log)
-
-                    #始终检测
-                    self.start_agent(agent_name)
-                    self.agent_mgr[agent_name].restart_monitor(self.regist_timeout)
-
-                elif monitor_stat[0] == 'change':
-                    pass
-
-                elif monitor_stat[0] == 'delete':
-                    host_ip = self.agent_stat.get_agent_host_ip(agent_name)  # 尝试启动主机的agent
-                    self.start_agent(agent_name) #先尝试启动主机的agent
-                    self.agent_mgr[agent_name].restart_monitor(self.regist_timeout)
-
-                elif monitor_stat[0] == 'child_change':
-                    sms_ls = self.zkctrl.get_children('/scheduler/agent/sms')
-                    rum_sms_ls = self.agent_stat.get_run_sms_in_agent(agent_name)
-                    log = 'process::child_change:',sms_ls,rum_sms_ls
-                    self.loger.info(log)
-                    for sms in sms_ls:
-                        agent_id, smsid =  sms.split('@')
-                        if  agent_id == agent_name:                       #只处理属于本主机的  smsid not in rum_sms_ls and
-                            sms_stat = self.zkctrl.get('/scheduler/agent/sms/%s'%(sms),self.agent_mgr[agent_name].watcher_sms)
-                            self.agent_stat.update_sms_state(agent_name,smsid,sms_stat[0])
-                elif monitor_stat[0] == 'take_over':
-                    old_cmd_txt = self.agent_cmd_txt[agent_name]
-                    take_sms = monitor_stat[1]
-                    new_take_sms = "%s"%take_sms
-                    new_take_sms = new_take_sms.replace('u','').replace("'",'"')
-                    take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)           #因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
-                    self.zkctrl.set('/scheduler/task/%s' % agent_name, take_over_txt)                # 更新task的状态
-                    self.zkctrl.get_children('/scheduler/agent/%s' % agent_name,
-                                             self.agent_mgr[agent_name].watcher_sms)                 # 监听此agent下的字节点sms
-                    self.agent_stat.update_agent_state(agent_name,'take_over','{"take_over":%s}'%take_sms)# 更新状态矩阵的takeover状态
-
-                elif monitor_stat[0] == "shutdown_sms":
-                    self.agent_stat.update_agent_state(agent_name,"switching")
-                    agent_cmd_txt = self.agent_cmd_txt[agent_name]
-                    agent_cmd = json.loads(agent_cmd_txt)
-                    spawn_sms_dic = agent_cmd['spawn']
-
-                    #当前情况下monitor_stat 是一个sms名称,所以不能用for sms in monitor_stat[1]这种形式
-                    #for sms in monitor_stat[1]:
-                    sms = monitor_stat[1]
-                    print 'sms:%s'%sms
-                    if sms in spawn_sms_dic:
-                        spawn_sms_dic[sms] = LocationMgr.STOP
-
-                        print 'spawn_sms_dic',spawn_sms_dic
-                    if 'take_over' in agent_cmd.keys():
-                        takeover_sms_dic = agent_cmd['take_over']
-                        if sms in takeover_sms_dic:
+                        #当前情况下monitor_stat 是一个sms名称,所以不能用for sms in monitor_stat[1]这种形式
+                        #for sms in monitor_stat[1]:
+                        sms = monitor_stat[1]
+                        print 'sms:%s'%sms
+                        if sms in spawn_sms_dic:
                             spawn_sms_dic[sms] = LocationMgr.STOP
 
-                    cmd = json.dumps(agent_cmd)
-                    self.agent_cmd_txt[agent_name] = cmd
-                    log =  "set /scheduler/task/%s:%s" % (agent_name, cmd)
-                    self.loger.info(log)
-                    self.zkctrl.set('/scheduler/task/%s' % agent_name,cmd)
-                    self.agent_stat.update_agent_state(agent_name,"shutdown_sms",sms)
+                            print 'spawn_sms_dic',spawn_sms_dic
+                        if 'take_over' in agent_cmd.keys():
+                            takeover_sms_dic = agent_cmd['take_over']
+                            if sms in takeover_sms_dic:
+                                spawn_sms_dic[sms] = LocationMgr.STOP
 
-                elif monitor_stat[0] == 'startup_sms':
-                    self.agent_stat.update_agent_state(agent_name,"switching")
-                    if agent_name not in self.agent_cmd_txt.keys():
-                       self.agent_cmd_txt[agent_name]=''
-                    agent_cmd_txt = self.agent_cmd_txt[agent_name]
-                    agent_cmd = json.loads(agent_cmd_txt)
-                    spawn_sms_dic = agent_cmd['spawn']
+                        cmd = json.dumps(agent_cmd)
+                        self.agent_cmd_txt[agent_name] = cmd
+                        log =  "set /scheduler/task/%s:%s" % (agent_name, cmd)
+                        self.loger.info(log)
+                        self.zkctrl.set('/scheduler/task/%s' % agent_name,cmd)
+                        self.agent_stat.update_agent_state(agent_name,"shutdown_sms",sms)
 
-                    #for sms in monitor_stat[1]:
-                    sms = monitor_stat[1]
-                    print 'sms:%s'%sms
-                    if sms in spawn_sms_dic:
-                        spawn_sms_dic[sms] = LocationMgr.RUN
-                    if 'take_over' in agent_cmd.keys():
-                        takeover_sms_dic = agent_cmd['take_over']
+                    elif monitor_stat[0] == 'startup_sms':
+                        self.agent_stat.update_agent_state(agent_name,"switching")
+                        if agent_name not in self.agent_cmd_txt.keys():
+                           self.agent_cmd_txt[agent_name]=''
+                        agent_cmd_txt = self.agent_cmd_txt[agent_name]
+                        agent_cmd = json.loads(agent_cmd_txt)
+                        spawn_sms_dic = agent_cmd['spawn']
+
+                        #for sms in monitor_stat[1]:
+                        sms = monitor_stat[1]
+                        print 'sms:%s'%sms
                         if sms in spawn_sms_dic:
                             spawn_sms_dic[sms] = LocationMgr.RUN
+                        if 'take_over' in agent_cmd.keys():
+                            takeover_sms_dic = agent_cmd['take_over']
+                            if sms in spawn_sms_dic:
+                                spawn_sms_dic[sms] = LocationMgr.RUN
 
-                    cmd = json.dumps(agent_cmd)
-                    self.agent_cmd_txt[agent_name] = cmd
-                    log =  "set /scheduler/task/%s:%s"%(agent_name,cmd)
-                    self.loger.info(log)
-                    self.zkctrl.set('/scheduler/task/%s' % agent_name, cmd)
-                    self.agent_stat.update_agent_state(agent_name, "startup_sms", sms)
-
-                elif monitor_stat[0] == 'switch_done':
-                    log =  'agent % switch done '%agent_name
-                    self.loger.info(log)
-
-                elif monitor_stat[0] == 'backing_takeover':
-                    switch_ls = monitor_stat[1]
-                    log = '%s back ,start backing-takeover %s'%(agent_name,switch_ls)
-                    self.loger.info(log)
-
-                    #切换每个待恢复厅，发送切换命令
-                    for bto_sms_id in switch_ls:
-                        log = 'switch %s form %s to %s'%(bto_sms_id,switch_ls[bto_sms_id],agent_name)
+                        cmd = json.dumps(agent_cmd)
+                        self.agent_cmd_txt[agent_name] = cmd
+                        log =  "set /scheduler/task/%s:%s"%(agent_name,cmd)
                         self.loger.info(log)
-                        self.switch(bto_sms_id,switch_ls[bto_sms_id],agent_name)
+                        self.zkctrl.set('/scheduler/task/%s' % agent_name, cmd)
+                        self.agent_stat.update_agent_state(agent_name, "startup_sms", sms)
 
-            elif agent_name in self.agent_ls  and sms_name in self.agent_stat.get_sms_name():#sms状态
-                if monitor_stat[0] == 'change':  #sms 状态发生变化
-                    new_stat = monitor_stat[1]
-                    self.agent_stat.update_sms_state(agent_name,sms_name,new_stat)
+                    elif monitor_stat[0] == 'switch_done':
+                        log =  'agent % switch done '%agent_name
+                        self.loger.info(log)
 
-                    self.cond.acquire()
-                    self.sms_state_transform.append({sms_name:new_stat})
-                    self.cond.notify()
-                    self.cond.release()
+                    elif monitor_stat[0] == 'backing_takeover':
+                        switch_ls = monitor_stat[1]
+                        log = '%s back ,start backing-takeover %s'%(agent_name,switch_ls)
+                        self.loger.info(log)
 
-                if monitor_stat[0] == 'delete':
-                    self.agent_stat.update_sms_state(agent_name,sms_name,'delete')
+                        #切换每个待恢复厅，发送切换命令
+                        for bto_sms_id in switch_ls:
+                            log = 'switch %s form %s to %s'%(bto_sms_id,switch_ls[bto_sms_id],agent_name)
+                            self.loger.info(log)
+                            self.switch(bto_sms_id,switch_ls[bto_sms_id],agent_name)
+
+                elif agent_name in self.agent_ls  and sms_name in self.agent_stat.get_sms_name():#sms状态
+                    if monitor_stat[0] == 'change':  #sms 状态发生变化
+                        new_stat = monitor_stat[1]
+                        self.agent_stat.update_sms_state(agent_name,sms_name,new_stat)
+
+                        self.cond.acquire()
+                        self.sms_state_transform.append({sms_name:new_stat})
+                        self.cond.notify()
+                        self.cond.release()
+
+                    if monitor_stat[0] == 'delete':
+                        self.agent_stat.update_sms_state(agent_name,sms_name,'delete')
 
 
 
-            #消息处理完成
-            self.msg_queue.task_done()
-            self.update_master_zkstate()
+                #消息处理完成
+                self.msg_queue.task_done()
+                self.update_master_zkstate()
+        except:
+            fp = StringIO.StringIO()
+            traceback.print_exc(file=fp)
+            message = fp.getvalue()
+            loger.info(message)
 
     # 获取所有运行的sms的状态
     def get_all_run_sms(self):
@@ -405,16 +414,20 @@ class AgentMgr:
 
     # 把当前状态更新到/scheduler/server/masterx上，以便于和备机同步状态
     def update_master_zkstate(self):
+        master_stat = {}
         stat_matrix = self.agent_stat.get_stat_matrix()
-        stat_matrix_txt = json.dumps(stat_matrix)
-        if stat_matrix_txt != self.prevous_stat_matrix:
-            self.zkctrl.set('/scheduler/server/%s'%self.localhost_name,stat_matrix_txt)
-            self.prevous_stat_matrix = stat_matrix_txt
+        master_stat['stat_matrix'] = stat_matrix
+        master_stat['cur_cmd'] = self.agent_cmd_txt
+        master_stat_txt = json.dumps(master_stat)
+        if master_stat_txt != self.prevous_master_stat_txt:
+            self.zkctrl.set('/scheduler/server/%s'%self.localhost_name,master_stat_txt)
+            self.prevous_master_stat_txt = master_stat_txt
 
     # 在元节点接管时，恢复状态
-    def set_stat_matrix(self,stat_matrix_json):
-        stat_matrix = json.loads(stat_matrix_json)
-        self.agent_stat.set_stat_matrix(stat_matrix)
+    def set_stat_matrix(self,stat_master):
+        self.agent_stat.set_stat_matrix(stat_master['stat_matrix'])
+        self.agent_cmd_txt = stat_master['cur_cmd']
+
 
 
     def getNodeHealthStat(self):
@@ -438,7 +451,7 @@ class MasterMgr:
         self.otherhost = otherhost
         self.otherhost_regist_timeout = 0
         self.role = '' #角色有： leader,follower,onlyleader,takeover_leader
-        self.otherhost_stat_matrix = ''
+        self.otherhost_stat_master = ''
 
 
         # 开启导片sms
@@ -452,71 +465,90 @@ class MasterMgr:
         else:
             self.role = ''
 
-    def set_setstatmatrix_fun(self,set_stat_matrix_fun):
-        self.set_stat_matrix_fun = set_stat_matrix_fun
+    def set_setstatmatrix_fun(self,set_stat_master_fun):
+        self.set_stat_master_fun = set_stat_master_fun
+
+    def set_startagentmonitor_fun(self,start_agent_monitor_fun):
+        self.start_agent_monitor = start_agent_monitor_fun
 
     def process(self):
-        while True:
-            msg = self.msg_queue.get()
-            msg = msg.replace("'", '"').replace('u"', '"')  # 去除u,替换单引号成双引号
+        try:
+            while True:
+                msg = self.msg_queue.get()
+                msg = msg.replace("'", '"').replace('u"', '"')  # 去除u,替换单引号成双引号
 
-            log = "get msg %s" %msg
-            self.loger.info(log)
-            master_stat = json.loads(msg)
-            msg_name = master_stat.keys()[0]
-            agent_name = msg_name
-            monitor_stat = master_stat[msg_name]
-            if agent_name in self.otherhost :    # master状态
-                if monitor_stat[0] == 'regist':  # master注册,根据当前角色转换到新的角色
-                    if self.role == 'onlyleader':
-                        self.role = 'leader'
-                    elif self.role == '':
-                        self.role = 'follower'
-                    elif self.role == 'takeover_leader':
-                        agent_monitor.setLocalhostRole('follower')
-                        self.ingest_dog.stop()
-                        self.ingest_dog.kill()
-                        self.role == 'follower'
-                    self.otherhost_regist_timeout = 0
-                elif monitor_stat[0] == 'regist_timeout':
-                    self.otherhost_regist_timeout += 1
-                    if self.otherhost_regist_timeout == 3 and self.otherhost=='master1':  # 3检测超时则启动接管
-                        #将leader的状态付给follower
-                        if self.otherhost_stat_matrix:
-                            stat_matrix = json.loads(self.otherhost_stat_matrix)
-                            self.set_stat_matrix_fun(stat_matrix)
-                        agent_monitor.setLocalhostRole('takeover_leader')
-                        self.role = 'takeover_leader'
-                        self.ingest_dog.start()
-                    log = "check agent %s:%s timeout ,so start it " % (agent_name, self.otherhost)
-                    self.loger.info(log)
-
-                    # 始终检测
-                    self.start_other_master(self.otherhost)
-                    self.host_mgr.restart_monitor(self.regist_timeout)
-
-                elif monitor_stat[0] == 'change':
-                    if len(monitor_stat) == 2:
-                        self.otherhost_stat_matrix = monitor_stat[1]
+                log = "get msg %s" %msg
+                self.loger.info(log)
+                master_stat = json.loads(msg)
+                msg_name = master_stat.keys()[0]
+                agent_name = msg_name
+                monitor_stat = master_stat[msg_name]
+                if agent_name in self.otherhost :    # master状态
+                    if monitor_stat[0] == 'regist':  # master注册,根据当前角色转换到新的角色
+                        if self.role == 'onlyleader':
+                            self.role = 'leader'
+                        elif self.role == '':
+                            self.role = 'follower'
+                        elif self.role == 'takeover_leader':
+                            agent_monitor.setLocalhostRole('follower')
+                            self.ingest_dog.stop()
+                            self.ingest_dog.kill()
+                            self.role == 'follower'
+                        self.otherhost_regist_timeout = 0
+                        if len(monitor_stat) == 2:
+                            self.otherhost_stat_master = monitor_stat[1]
+                            log = 'master cur stat matrix :%s'%self.otherhost_stat_master
+                            self.loger.info(log)
 
 
-                elif monitor_stat[0] == 'delete':
-                    # 始终检测
-                    self.start_other_master(self.otherhost)
-                    self.host_mgr.restart_monitor(self.regist_timeout)
+                    elif monitor_stat[0] == 'regist_timeout':
+                        self.otherhost_regist_timeout += 1
+                        if self.otherhost_regist_timeout == 3 and self.otherhost=='master1':  # 3检测超时则启动接管
+                            #将leader的状态付给follower
+                            if self.otherhost_stat_master:
+                                log = 'begin take over master1 by master2\n'
+                                log += 'set stat mastrix(%s)'%self.otherhost_stat_master
+                                self.loger.info(log)
+                                self.set_stat_master_fun(self.otherhost_stat_master)
+                            agent_monitor.setLocalhostRole('takeover_leader')
+                            if self.start_agent_monitor:#接管后重新对所有的agent进行注册
+                                self.start_agent_monitor()
+                            self.role = 'takeover_leader'
+                            self.ingest_dog.start()
+                        log = "check agent %s:%s timeout ,so start it " % (agent_name, self.otherhost)
+                        self.loger.info(log)
+
+                        # 始终检测
+                        self.start_other_master(self.otherhost)
+                        self.host_mgr.restart_monitor(self.regist_timeout)
+
+                    elif monitor_stat[0] == 'change':
+                        if len(monitor_stat) == 2:
+                            self.otherhost_stat_master = monitor_stat[1]
+                            self.loger.info(log)
+
+                    elif monitor_stat[0] == 'delete':
+                        # 始终检测
+                        self.start_other_master(self.otherhost)
+                        self.host_mgr.restart_monitor(self.regist_timeout)
 
 
-                elif monitor_stat[0] == 'take_over':
-                    pass
+                    elif monitor_stat[0] == 'take_over':
+                        pass
 
-                elif monitor_stat[0] == 'backing_takeover':
-                    pass
-
-
+                    elif monitor_stat[0] == 'backing_takeover':
+                        pass
 
 
-            # 消息处理完成
-            self.msg_queue.task_done()
+
+
+                # 消息处理完成
+                self.msg_queue.task_done()
+        except:
+            fp = StringIO.StringIO()
+            traceback.print_exc(file=fp)
+            message = fp.getvalue()
+            loger.info(message)
 
     # 开始对另一台元服务的监控
     def start_monitor(self):
@@ -694,14 +726,27 @@ def main(args,loger):
 
     regist_timeout = timeout['slaver_regist']
 
+    master2_stat = ''
+    if localhost_name=='master1':
+        if zkctl.exists('/scheduler/server/master2'):
+            master2_stat = zkctl.get('/scheduler/server/master2')
+
     master_mgr = MasterMgr(localhost_name, other_master_host, zkctl, regist_timeout, ingest_sms, loger)
     master_mgr.start_monitor()
 
     # 创建agent管理实例，并启动对/scheduler/agent节点的监控
     agent_mgr = AgentMgr(agent_ls,localhost_name,location_mgr, zkctl,
                          timeout['slaver_regist'],loger)
+
+    # 如果master2已经接管，则恢复接管
+    if len(master2_stat) != 0 and master2_stat[0]:
+        cur_master_stat = json.loads(master2_stat[0])
+        agent_mgr.set_stat_matrix(cur_master_stat)
+        log = 'backing take over,set stat of master2 to master1 '
+        loger.info(log)
     agent_mgr.start_monitor()
     master_mgr.set_setstatmatrix_fun(agent_mgr.set_stat_matrix)
+    master_mgr.set_startagentmonitor_fun(agent_mgr.start_agent_monitor)
 
 
 

@@ -12,7 +12,7 @@ import time
 import zookeeper
 import sys
 import copy
-
+import pdb
 
 
 class StatMgr:
@@ -29,7 +29,7 @@ class StatMgr:
         self.stat_matrix = {}
         self.msg_queue = msg_queue
         for agent_name in agent_ls:
-          self.stat_matrix[agent_name] = {'agent_state':['unregist','unregist'],'take_over':{},'sms':{}}
+          self.stat_matrix[agent_name] = {'agent_state':['unregist','unregist'],'take_over':{},'sms':{},'enable':False}
         self.cluster_stat = ['booting','booting']
         self.stat_lock = threading.Lock()
         self.log = log
@@ -63,6 +63,7 @@ class StatMgr:
             log = 'enter spawn process'
             self.log.info(log)
             self.LM.enable_agent(agent_name)
+            self.stat_matrix[agent_name]['enable'] = True
             run_sms = self.LM.get_agent_runsms(agent_name,0)          # 获取在agnet_name上第一路径运行的sms
             run_sms_txt = json.dumps(run_sms)                         # 转成json
             msg_txt = '{"%s":["spawn",%s]}'%(agent_name,run_sms_txt)
@@ -73,6 +74,7 @@ class StatMgr:
             switch_agent = {}
             switch_ls = []
             self.LM.disable_agent(agent_name)
+            self.stat_matrix[agent_name]['enable'] = False
             log = 'enter take over process'
             self.log.info(log)
             # 获取主机当前运行的sms
@@ -336,6 +338,11 @@ class StatMgr:
 
     def set_stat_matrix(self,stat_matrix):
         self.stat_matrix = stat_matrix
+        for agent_id in self.stat_matrix:
+            if self.stat_matrix[agent_id]['enable'] :
+                self.LM.enable_agent(agent_id)
+                log = 'set %s enable True'%agent_id
+                self.log.info(log)
 
 
 

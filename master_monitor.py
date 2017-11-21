@@ -52,7 +52,12 @@ class MonitorMaster:
                stat = self.zkclt.get('/scheduler/server/%s' % self.mastername, self.watcher)
                self.bexist = True
                self.stat = stat
-               msg_txt = '{"%s":["regist"]}' % (self.mastername)
+               log = 'checked /scheduler/server/%s status:%d %s'%(self.mastername,len(stat),stat)
+               self.loger.info(log)
+               if stat[0]:
+                   msg_txt = '{"%s":["regist",%s]}' % (self.mastername,stat[0])
+               else:
+                   msg_txt = '{"%s":["regist"]}' % (self.mastername)
                self.msg_queue.put(msg_txt) #交由上层AgentMgr.process处理
                break
 
@@ -78,7 +83,7 @@ class MonitorMaster:
         if w_type == 3:
             new_vaule = zookeeper.get(h_zk, w_path, self.watcher)
             self.stat = new_vaule
-            msg_txt = '{"%s":["change","%s"]}'%(self.mastername,new_vaule)
+            msg_txt = '{"%s":["change",%s]}'%(self.mastername,new_vaule[0])
             self.msg_queue.put(msg_txt)  # 交由上层AgentMgr.process处理
 
 

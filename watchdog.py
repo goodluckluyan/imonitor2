@@ -198,6 +198,7 @@ class watchdog:
         runtm = time.time()
         self.bExit = False
         cnt = 0
+        zombiestatustm = 0
         while not self.bExit:
             ret = self.exeshell(self.grepcmd)
             # writelogfile("check sms pid:%s\n"%ret)
@@ -243,7 +244,7 @@ class watchdog:
                 #os.system(self.run_service_name)
                 self.run_cmd(self.run_service_name)
                 #subprocess.Popen(['%s/%s'%(self.service_path,self.service_name),self.configfilepath],shell=True)
-                self.loger.info(os.environ)
+                #self.loger.info(os.environ)
                 os.system("touch %s" % self.reboottmfile)
                 time.sleep(self.check_interval_sec * 8)
             else:
@@ -252,7 +253,7 @@ class watchdog:
                 bexcept = False
                 if not self.wsclient:
                     try:
-                        log =  "create wsclient....."
+                        log =  "create wsclient(http://127.0.0.1:%d/?wsdl)....."%self.wsport
                         self.loger.info(log)
                         imp = Import('http://www.w3.org/2001/XMLSchema')
                         imp.filter.add('http://WebXml.com.cn/')
