@@ -315,7 +315,8 @@ class StatMgr:
             stat_dict = self.stat_matrix[agent_name]['sms']
             ip = self.LM.get_agent_host_ip(agent_name)
             for smsid in stat_dict.keys():
-                sms_info[smsid] = [stat_dict[smsid][1],ip,agent_name]#取最新的状态
+                if int(stat_dict[smsid][1])>100:
+                    sms_info[smsid] = [stat_dict[smsid][1],ip,agent_name]#取最新的状态
         return sms_info
 
     # 获取制定主机上的sms的最新状态

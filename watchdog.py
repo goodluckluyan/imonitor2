@@ -30,7 +30,7 @@ class watchdog:
     '''看门狗类'''
 
 
-    def __init__(self,path,exename,port,para ,loger):
+    def __init__(self,path,exename,port,para ,loger,b_fork=False):
         self.service_name = exename
         self.service_path = path
         self.configfilepath = para
@@ -50,6 +50,7 @@ class watchdog:
         self.wsport = port
         self.wsclient=''
         self.loger = loger
+        self.bfork = b_fork
 
 
     def check_init_stat(self):
@@ -241,8 +242,10 @@ class watchdog:
                 tm = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
                 log = "%s:Check Service Stop ,So Run It<%s>\n" % (tm, self.run_service_name)
                 self.loger.info(log)
-                #os.system(self.run_service_name)
-                self.run_cmd(self.run_service_name)
+                if self.bfork:
+                    self.run_cmd(self.run_service_name)
+                else:
+                    os.system(self.run_service_name)
                 #subprocess.Popen(['%s/%s'%(self.service_path,self.service_name),self.configfilepath],shell=True)
                 #self.loger.info(os.environ)
                 os.system("touch %s" % self.reboottmfile)
@@ -298,8 +301,8 @@ class watchdog:
 
 class watchctrl:
     '''对看门狗进行控制'''
-    def __init__(self,path,cmd,para,wsport,loger,sms_name):
-        self.dog = watchdog(path,cmd,wsport,para,loger)
+    def __init__(self,path,cmd,para,wsport,loger,sms_name,b_fork=False):
+        self.dog = watchdog(path,cmd,wsport,para,loger,b_fork)
         #self.dog.initWebService(wsport)
         self.stat = self.dog.check_init_stat() + NOWATCH
         self.loger = loger

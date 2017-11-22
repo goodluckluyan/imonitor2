@@ -40,6 +40,12 @@
   "TimeOut":
   {
     "slaver_regist":30
+  },
+
+  "sms_reboot_time":
+  {
+    "frist":3,
+    "second":7
   }
 
 }

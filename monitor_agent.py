@@ -173,13 +173,11 @@ class EventMgr:
             stat = self.sms[hallid].get_sms_state()
             if int(stat) > 100:
                 new_sms_stat[hallid] = stat
-                log = "get %s stat:"%hallid,stat
-                self.loger.info(log)
         self.lock.release()
 
         for hallid in new_sms_stat:
             if new_sms_stat[hallid] != self.sms_stat[hallid]:
-                log = 'new stat is ',new_sms_stat[hallid]
+                log = '%s stat change(%s->%s) '%(hallid,self.sms_stat[hallid],new_sms_stat[hallid])
                 self.loger.info(log)
                 path = '/scheduler/agent/sms/%s@%s' % (self.hostname,hallid)
                 self.sms_stat[hallid] = new_sms_stat[hallid]

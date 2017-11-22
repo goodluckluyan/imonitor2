@@ -254,11 +254,12 @@ class AgentMgr:
                                 break
                         sms_ls = []
                         if is_run:
-                            if '/scheduler/agent/sms' not in self.watch_record.keys():
+                            watcher_name = '%s@/scheduler/agent/sms' % agent_name
+                            if watcher_name not in self.watch_record.keys():
                                 sms_ls = self.zkctrl.get_children('/scheduler/agent/sms',
                                                          self.agent_mgr[agent_name].watcher_sms)     # 监听此agent下的字节点sms
-                                self.watch_record['/scheduler/agent/sms'] = True
-                                log = 'add watcher at %s node'%'/scheduler/agent/sms'
+                                self.watch_record[watcher_name] = True
+                                log = 'add watcher at %s node'%watcher_name
                                 self.loger.info(log)
 
                             self.agent_stat.update_agent_state(agent_name,'spawning',runsms_json)# 更新状态到spawning
@@ -274,6 +275,8 @@ class AgentMgr:
                                                 self.watch_record[sms_node] = True
                                                 log = 'add watcher at %s node' % sms_node
                                                 self.loger.info(log)
+                                            else:
+                                                sms_stat = self.zkctrl.get(sms_node)
                                             self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
 
                     elif monitor_stat[0] == 'regist_timeout':
@@ -311,29 +314,36 @@ class AgentMgr:
                                     self.watch_record[sms_node] = True
                                     log = 'add watcher at %s node' % sms_node
                                     self.loger.info(log)
+                                else:
+                                    sms_stat = self.zkctrl.get(sms_node)
                                 self.agent_stat.update_sms_state(agent_name,smsid,sms_stat[0])
                     elif monitor_stat[0] == 'take_over':
                         old_cmd_txt = self.agent_cmd_txt[agent_name]
                         old_cmd = json.loads(old_cmd_txt)
                         take_sms = monitor_stat[1]
+
+                        # 合并已经存在的take over
                         if 'take_over' in old_cmd.keys():
                             to_dict = old_cmd['take_over']
                             new_dict = dict(take_sms.items()+to_dict.items())
                             old_cmd['take_over'] = new_dict
                             take_sms = new_dict
                             take_over_txt = json.dumps(old_cmd)
-                            log = 'add take over to prevous take over list (%s)'take_over_txt
+                            log = 'add take over to prevous take over list (%s)'%take_over_txt
                             self.loger.info(log)
                         else:
                             new_take_sms = "%s"%take_sms
                             new_take_sms = new_take_sms.replace('u','').replace("'",'"')
-                            take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)           #因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
+                            take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)       # 因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
                         self.zkctrl.set('/scheduler/task/%s' % agent_name, take_over_txt)                # 更新task的状态
-                        if '/scheduler/agent/sms' not in self.watch_record.keys():
+
+                        # 对/scheduler/agent/sms添加wather
+                        watcher_name = '%s@/scheduler/agent/sms'%agent_name
+                        if watcher_name not in self.watch_record.keys():
                             self.zkctrl.get_children('/scheduler/agent/sms',
                                                  self.agent_mgr[agent_name].watcher_sms)                 # 监听此agent下的字节点sms
-                            self.watch_record['/scheduler/agent/sms'] = True
-                            log = 'add watcher at %s node' %'/scheduler/agent/sms'
+                            self.watch_record[watcher_name] = True
+                            log = 'add watcher at %s node' %watcher_name
                             self.loger.info(log)
 
                         self.agent_stat.update_agent_state(agent_name,'take_over','{"take_over":%s}'%take_sms)# 更新状态矩阵的takeover状态
@@ -417,6 +427,11 @@ class AgentMgr:
                     if monitor_stat[0] == 'delete':
                         self.agent_stat.update_sms_state(agent_name,sms_name,'delete')
 
+                        # 删除相应的wather记录
+                        watch_node = '/scheduler/agent/sms/%s@%s'%(agent_name,sms_name)
+                        del self.watch_record[watch_node]
+                        log = 'del watcher record %s,cur watch record:%s'%(watch_node,self.watch_record)
+                        self.loger.info(log)
 
 
                 #消息处理完成
@@ -503,7 +518,7 @@ class MasterMgr:
 
         # 开启导片sms
         self.ingest_dog = watchdog.watchctrl(ingest_sms_info['path'], ingest_sms_info['cmd'],
-                                             ingest_sms_info['parameter'], ingest_sms_info['port'], loger,'ingest_sms')
+                                             ingest_sms_info['parameter'], ingest_sms_info['port'], loger,'ingest_sms',True)
 
         if localhost=='master1':
             self.role = 'onlyleader'
@@ -820,15 +835,23 @@ def main(args,loger):
     webservice_th = Thread(target=spyne_webservice.webserverFun)
     webservice_th.start()
 
+    cnt = 0
     while True:
         # 定时更新sms的状态
         time.sleep(2)
         zkctl.async('/scheduler')
+
+        # 获取所有sms的运行状态和位置
         all_run_sms = agent_mgr.get_all_run_sms()
         if not all_run_sms:
             continue
         for sms_id in all_run_sms:
-            spyne_webservice.g_sms_stat[sms_id][1] = all_run_sms[sms_id][1]
+            spyne_webservice.g_sms_stat[sms_id][1] = all_run_sms[sms_id][1]#1 为sms的运行位置
+        cnt += 1
+        if cnt % 15 == 0:
+            log = 'all sms run stat:%s'%all_run_sms
+            loger.info(log)
+            cnt = 0
   except:
     fp = StringIO.StringIO()
     traceback.print_exc(file=fp)
