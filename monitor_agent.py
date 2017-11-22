@@ -53,7 +53,7 @@ sms_path={
            'sms10':['/usr/local/smsserver/smsserver10','oristar_sms_server','/etc/smsconfig/sms_config10.ini',9010]
            }
 
-zk_server_ip = '172.23.140.28:2181'
+zk_server_ip = '127.0.0.1:2181'
 #zk_server_ip = '10.7.75.60:2181'
 #sms_path = {'iostat':['/usr/bin','iostat','1','12340']}
 
@@ -96,33 +96,67 @@ class EventMgr:
             self.loger.info(log)
             self.lock.acquire()
 
+            new_stat={}
             for cmd in self.task:
-                if cmd == 'spawn':
-                    for hallid in self.task[cmd]:
-                        if self.task[cmd][hallid] == 1:
-                            path = '/scheduler/agent/sms/%s@%s' % (self.hostname,hallid)
-                            if not self.zkctrl.exists(path):
-                                log = "create path zk:%s"%path
-                                self.loger.info(log)
-                                self.zkctrl.create(path, '%d' %self.task[cmd][hallid], 1)
-                            self.sms[hallid].setstat(self.task[cmd][hallid])
+                # if cmd == 'spawn':
+                #     if self.task[cmd][hallid] == 1:
+                #         path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                #         if not self.zkctrl.exists(path):
+                #             log = "create path zk:%s" % path
+                #             self.loger.info(log)
+                #             self.zkctrl.create(path, '%d' % self.task[cmd][hallid], 1)
+                #         self.sms[hallid].setstat(self.task[cmd][hallid])
+                #
+                #     elif self.task[cmd][hallid] == 8:
+                #         path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                #         if self.zkctrl.exists(path):
+                #             log = 'delete path zk:%s' % path
+                #             self.loger.info(log)
+                #             self.zkctrl.delete(path)
+                #         self.sms[hallid].setstat(self.task[cmd][hallid])
+                # if cmd == 'take_over':
+                #     for hallid in self.task[cmd]:
+                #         if self.task[cmd][hallid] == 1:
+                #             path = '/scheduler/agent/sms/%s@%s' % (self.hostname,hallid)
+                #             if not self.zkctrl.exists(path):
+                #                 log =  "create path zk:%s"%path
+                #                 self.loger.info(log)
+                #                 self.zkctrl.create(path, '%d' %self.task[cmd][hallid], 1)
+                #             self.sms[hallid].setstat(self.task[cmd][hallid])
 
-                        elif self.task[cmd][hallid] == 8:
-                            path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
-                            if self.zkctrl.exists(path):
-                                log =  'delete path zk:%s'%path
-                                self.loger.info(log)
-                                self.zkctrl.delete(path)
-                            self.sms[hallid].setstat(self.task[cmd][hallid])
-                if cmd == 'take_over':
-                    for hallid in self.task[cmd]:
-                        if self.task[cmd][hallid] == 1:
-                            path = '/scheduler/agent/sms/%s@%s' % (self.hostname,hallid)
-                            if not self.zkctrl.exists(path):
-                                log =  "create path zk:%s"%path
-                                self.loger.info(log)
-                                self.zkctrl.create(path, '%d' %self.task[cmd][hallid], 1)
-                            self.sms[hallid].setstat(self.task[cmd][hallid])
+                # apawn和takeover中只要有个一个是1,则启动
+                log = 'task(%s:%s)'%(cmd,self.task[cmd])
+                self.loger.info(log)
+                for hallid in self.task[cmd]:
+                    log = 'new_stat: %s'%new_stat
+                    self.loger.info(log)
+                    if hallid in new_stat.keys():
+                        if self.task[cmd][hallid] == 1 or new_stat[hallid] == 1:
+                            new_stat[hallid] = 1
+                        else:
+                            new_stat[hallid] = 8
+                    else:
+                        new_stat[hallid] = self.task[cmd][hallid]
+
+
+            log = 'cur run stat %s'%new_stat
+            self.loger.info(log)
+            for hallid in new_stat:
+                if new_stat[hallid] == 1:
+                    path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                    if not self.zkctrl.exists(path):
+                        log = "create path zk:%s" % path
+                        self.loger.info(log)
+                        self.zkctrl.create(path, '%d' % new_stat[hallid], 1)
+                    self.sms[hallid].setstat(new_stat[hallid])
+
+                elif new_stat[hallid] == 8:
+                    path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                    if self.zkctrl.exists(path):
+                        log = 'delete path zk:%s' % path
+                        self.loger.info(log)
+                        self.zkctrl.delete(path)
+                    self.sms[hallid].setstat(new_stat[hallid])
 
             self.lock.release()
             self.task_queue.task_done()

@@ -76,9 +76,9 @@ class watchdog:
             pass
 
 
-    def getsmsstatus(self,client):
+    def getsmsstatus(self):
         try:
-            ret=client.service.GetWorkState_CS()
+            ret=self.wsclient.service.GetWorkState_CS()
             #tm=time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
             #self.writelogfile("%s getsmsstatus info:%s\n"%(tm,ret.info))
             return int(ret.workstate)
@@ -266,7 +266,7 @@ class watchdog:
 
                 while not bexcept :
                     self.ss_lock.acquire()
-                    sms_stat = self.getsmsstatus(self.wsclient)
+                    sms_stat = self.getsmsstatus()
                     self.ss_lock.release()
                     if sms_stat > 0:
                        self.sms_stat = sms_stat

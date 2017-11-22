@@ -164,6 +164,7 @@ class AgentMgr:
         self.loger = loger
         self.localhost_name = localhost_name
         self.prevous_master_stat_txt = '' #记录上次状态矩阵的状态和当前的命令字
+        self.watch_record={}
 
         for agent_name in agent_ls:
             self.agent_regist_timeout[agent_name] = 0
@@ -238,6 +239,8 @@ class AgentMgr:
                         self.zkctrl.async('/scheduler/task')
                         if self.zkctrl.exists(task_node):
                             self.zkctrl.set(task_node,runsms_json)
+                            log = 'set %s value:%s'%(task_node,runsms_json)
+                            self.loger.info(log)
                         else:
                             self.zkctrl.create(task_node, runsms_json,1)   # 下发任务,即更新task的状态
                         self.agent_cmd_txt[agent_name] = runsms_json       # 记录当前命令语句
@@ -251,18 +254,27 @@ class AgentMgr:
                                 break
                         sms_ls = []
                         if is_run:
-                            sms_ls = self.zkctrl.get_children(u'/scheduler/agent/sms',
+                            if '/scheduler/agent/sms' not in self.watch_record.keys():
+                                sms_ls = self.zkctrl.get_children('/scheduler/agent/sms',
                                                          self.agent_mgr[agent_name].watcher_sms)     # 监听此agent下的字节点sms
+                                self.watch_record['/scheduler/agent/sms'] = True
+                                log = 'add watcher at %s node'%'/scheduler/agent/sms'
+                                self.loger.info(log)
+
                             self.agent_stat.update_agent_state(agent_name,'spawning',runsms_json)# 更新状态到spawning
 
-                        #检测是否sms已经运行
-                        if sms_ls:
-                            for sms in sms_ls:
-                                agt_id,sms_id = sms.split('@')
-                                if agt_id == agent_name:
-                                        sms_stat = self.zkctrl.get('/scheduler/agent/sms/%s' % (sms),
-                                                                   self.agent_mgr[agent_name].watcher_sms)
-                                        self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
+                            #检测是否sms已经运行
+                            if sms_ls:
+                                for sms in sms_ls:
+                                    agt_id,sms_id = sms.split('@')
+                                    if agt_id == agent_name:
+                                            sms_node = '/scheduler/agent/sms/%s' % (sms)
+                                            if sms_node not in self.watch_record.keys():
+                                                sms_stat = self.zkctrl.get(sms_node,self.agent_mgr[agent_name].watcher_sms)
+                                                self.watch_record[sms_node] = True
+                                                log = 'add watcher at %s node' % sms_node
+                                                self.loger.info(log)
+                                            self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
 
                     elif monitor_stat[0] == 'regist_timeout':
                         self.agent_regist_timeout[agent_name] += 1
@@ -293,17 +305,37 @@ class AgentMgr:
                         for sms in sms_ls:
                             agent_id, smsid =  sms.split('@')
                             if  agent_id == agent_name:                       #只处理属于本主机的  smsid not in rum_sms_ls and
-                                sms_stat = self.zkctrl.get('/scheduler/agent/sms/%s'%(sms),self.agent_mgr[agent_name].watcher_sms)
+                                sms_node = '/scheduler/agent/sms/%s' % (sms)
+                                if sms_node not in self.watch_record.keys():
+                                    sms_stat = self.zkctrl.get(sms_node,self.agent_mgr[agent_name].watcher_sms)
+                                    self.watch_record[sms_node] = True
+                                    log = 'add watcher at %s node' % sms_node
+                                    self.loger.info(log)
                                 self.agent_stat.update_sms_state(agent_name,smsid,sms_stat[0])
                     elif monitor_stat[0] == 'take_over':
                         old_cmd_txt = self.agent_cmd_txt[agent_name]
+                        old_cmd = json.loads(old_cmd_txt)
                         take_sms = monitor_stat[1]
-                        new_take_sms = "%s"%take_sms
-                        new_take_sms = new_take_sms.replace('u','').replace("'",'"')
-                        take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)           #因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
+                        if 'take_over' in old_cmd.keys():
+                            to_dict = old_cmd['take_over']
+                            new_dict = dict(take_sms.items()+to_dict.items())
+                            old_cmd['take_over'] = new_dict
+                            take_sms = new_dict
+                            take_over_txt = json.dumps(old_cmd)
+                            log = 'add take over to prevous take over list (%s)'take_over_txt
+                            self.loger.info(log)
+                        else:
+                            new_take_sms = "%s"%take_sms
+                            new_take_sms = new_take_sms.replace('u','').replace("'",'"')
+                            take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)           #因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
                         self.zkctrl.set('/scheduler/task/%s' % agent_name, take_over_txt)                # 更新task的状态
-                        self.zkctrl.get_children('/scheduler/agent/%s' % agent_name,
+                        if '/scheduler/agent/sms' not in self.watch_record.keys():
+                            self.zkctrl.get_children('/scheduler/agent/sms',
                                                  self.agent_mgr[agent_name].watcher_sms)                 # 监听此agent下的字节点sms
+                            self.watch_record['/scheduler/agent/sms'] = True
+                            log = 'add watcher at %s node' %'/scheduler/agent/sms'
+                            self.loger.info(log)
+
                         self.agent_stat.update_agent_state(agent_name,'take_over','{"take_over":%s}'%take_sms)# 更新状态矩阵的takeover状态
 
                     elif monitor_stat[0] == "shutdown_sms":
@@ -428,9 +460,24 @@ class AgentMgr:
         self.agent_stat.set_stat_matrix(stat_master['stat_matrix'])
         self.agent_cmd_txt = stat_master['cur_cmd']
 
+        #重新建立task节点
+        for agent_id in self.agent_cmd_txt:
+            task_node = '/scheduler/task/%s' % agent_id
+            self.zkctrl.create(task_node,self.agent_cmd_txt[agent_id], 1)
+            log = 'rebuild %s node'%(task_node)
+            self.loger.info(log)
+        self.watch_record = {}
+
+    def del_task_node(self):
+        for agent_id in self.agent_cmd_txt:
+            task_node = '/scheduler/task/%s' % agent_id
+            self.zkctrl.delete(task_node)
+            log = 'delete %s node' % (task_node)
+            self.loger.info(log)
 
 
-    def getNodeHealthStat(self):
+
+def getNodeHealthStat(self):
         dis_ls = self.agent_mgr.getDisableHost()
         if len(dis_ls)>0:
             return False
@@ -471,12 +518,14 @@ class MasterMgr:
     def set_startagentmonitor_fun(self,start_agent_monitor_fun):
         self.start_agent_monitor = start_agent_monitor_fun
 
+    def set_deltasknode_fun(self,del_task_node_fun):
+        self.del_task_node_fun = del_task_node_fun
+
     def process(self):
         try:
             while True:
                 msg = self.msg_queue.get()
                 msg = msg.replace("'", '"').replace('u"', '"')  # 去除u,替换单引号成双引号
-
                 log = "get msg %s" %msg
                 self.loger.info(log)
                 master_stat = json.loads(msg)
@@ -487,13 +536,19 @@ class MasterMgr:
                     if monitor_stat[0] == 'regist':  # master注册,根据当前角色转换到新的角色
                         if self.role == 'onlyleader':
                             self.role = 'leader'
+                            agent_monitor.setLocalhostRole('leader')
                         elif self.role == '':
                             self.role = 'follower'
+                            agent_monitor.setLocalhostRole('follower')
                         elif self.role == 'takeover_leader':
                             agent_monitor.setLocalhostRole('follower')
                             self.ingest_dog.stop()
                             self.ingest_dog.kill()
+
+                            # 删除task，让master1创建
+                            self.del_task_node_fun()
                             self.role == 'follower'
+
                         self.otherhost_regist_timeout = 0
                         if len(monitor_stat) == 2:
                             self.otherhost_stat_master = monitor_stat[1]
@@ -730,6 +785,14 @@ def main(args,loger):
     if localhost_name=='master1':
         if zkctl.exists('/scheduler/server/master2'):
             master2_stat = zkctl.get('/scheduler/server/master2')
+            for i in range(10):
+                zkctl.async('/scheduler/task')
+                child_ls = zkctl.get_children('/scheduler/task')
+                if not child_ls:
+                    break
+                time.sleep(3)
+                log = 'waiting for master2 delete /scheduler/task/slaveX '
+                loger.info(log)
 
     master_mgr = MasterMgr(localhost_name, other_master_host, zkctl, regist_timeout, ingest_sms, loger)
     master_mgr.start_monitor()
@@ -744,9 +807,11 @@ def main(args,loger):
         agent_mgr.set_stat_matrix(cur_master_stat)
         log = 'backing take over,set stat of master2 to master1 '
         loger.info(log)
+
+    master_mgr.set_setstatmatrix_fun(agent_mgr.set_stat_matrix)#注册设置节点状态回调
+    master_mgr.set_startagentmonitor_fun(agent_mgr.start_agent_monitor)#注册重启agent_monitor回调
+    master_mgr.set_deltasknode_fun(agent_mgr.del_task_node)#注册删除task回调
     agent_mgr.start_monitor()
-    master_mgr.set_setstatmatrix_fun(agent_mgr.set_stat_matrix)
-    master_mgr.set_startagentmonitor_fun(agent_mgr.start_agent_monitor)
 
 
 

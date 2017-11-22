@@ -58,7 +58,11 @@ class MonitorAgent:
             self.zkclt.async('/scheduler/agent')
             child_node = self.zkclt.get_children('/scheduler/agent')  # 检测agent注册
             if self.agent_name in child_node:
-               stat = self.zkclt.get('/scheduler/agent/%s' % self.agent_name, self.watcher)
+               node_name =  '/scheduler/agent/%s' % self.agent_name
+               stat = self.zkclt.get(node_name, self.watcher)
+               log = 'add watcher to %s node'%node_name
+               self.loger.info(log)
+
                self.bexist = True
                self.agent_stat = stat
                msg_txt = '{"%s":["regist"]}' % (self.agent_name)
@@ -92,7 +96,7 @@ class MonitorAgent:
         w_path:这个状态就不用解释了,znode的路径
         '''
         sms_name = os.path.basename(w_path)
-        log =  "watche sms change:t:%d s:%d p:%s" % (w_type, w_stat, w_path)
+        log =  "%s watche sms change:t:%d s:%d p:%s" % (self.server_node_name,w_type, w_stat, w_path)
         self.loger.info(log)
         if w_type == 3:
             new_vaule = zookeeper.get(h_zk, w_path, self.watcher_sms)
@@ -146,7 +150,7 @@ class MonitorAgent:
         w_path:这个状态就不用解释了,znode的路径
         '''
 
-        log = "watche node change:t:%d s:%d p:%s"%(w_type,w_stat,w_path)
+        log = "%s watche node change:t:%d s:%d p:%s"%(self.server_node_name,w_type,w_stat,w_path)
         self.loger.info(log)
         if w_type == 3:
             new_vaule = zookeeper.get(h_zk, w_path, self.watcher)

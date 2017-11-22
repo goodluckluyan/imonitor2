@@ -194,7 +194,7 @@ class StatMgr:
 
 
     def update_sms_state(self,agent_name,sms_name,state):
-        log = 'update_sms_state:%s-%s state:'%(agent_name,sms_name),state
+        log = 'update_sms_state:%s@%s state:'%(agent_name,sms_name),state
         self.log.info(log)
         #print 'prevous agent(%s) stat:'%agent_name, self.stat_matrix[agent_name]
         stat_dict = self.stat_matrix[agent_name]['sms']
@@ -203,7 +203,10 @@ class StatMgr:
         if sms_name in stat_dict.keys():
             new_stat = stat_dict[sms_name]
             new_stat[0] = new_stat[1]      # 保留上次的状态
-            new_stat[NEW] = state              # 保存新的状态
+            if state == 'delete':
+                new_stat[NEW] = '0'
+            else:
+                new_stat[NEW] = state              # 保存新的状态
         else:
             stat_dict = self.stat_matrix[agent_name]['sms']
             stat_dict[sms_name] = ['',state]
