@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# -*- coding: UTF-8 -*-
+#  -*- coding: UTF-8 -*-
 
 import zkpython
 import os
@@ -156,7 +156,8 @@ class AgentMgr:
         self.process_th = Thread(target=self.process)
         self.agent_stat = stat_manager.StatMgr(agent_ls,locationmgr,self.msg_queue,loger)
         self.delay_switch_thread = Thread(target=self.delay_switch_fun)
-        self.agent_regist_timeout = {}
+        self.agent_regist_timeout = {}#agent 注册超时次数
+        self.sms_regist_timeout = {}#slave@sms注册超时次数
         self.agent_cmd_txt = {}
         self.delay_switch = {}
         self.sms_state_transform=[]
@@ -176,6 +177,10 @@ class AgentMgr:
                 if len(self.sms_state_transform) == 0:
                     self.cond.wait()
                 else:
+                    log = 'sms status change ,look for whether exist delay switch task\n'
+                    log += 'sms of stat change:%s'%self.sms_state_transform
+                    log += 'all delay switch :%s'%self.delay_switch
+                    self.loger.info(log)
                     for item in self.sms_state_transform:
                         sms_name = item.keys()
                         if sms_name not in self.delay_switch.keys():
@@ -188,8 +193,15 @@ class AgentMgr:
 
             self.cond.release()
             for switch in switch_ls:
-                self.switch(switch[0], switch[1], switch[2])
+                log = 'execute delay switch %s:(%s->%s)'%(switch[0],switch[1],switch[2])
+                self.loger.info(log)
+                if self.switch(switch[0], switch[1], switch[2]):
+                    del self.delay_switch[switch[0]]
 
+            if len(self.delay_switch.keys())>0:
+                log = 'not execute delay switch :%s'%self.delay_switch
+                self.loger.info(log)
+            self.sms_state_transform = []
             time.sleep(2)
 
     def start_monitor(self):
@@ -247,13 +259,12 @@ class AgentMgr:
 
                         #找到是否有启动的sms
                         run_sms = json.loads(runsms_json)
-                        is_run = False
+                        check_sms_start=[]
                         for sms_id in run_sms['spawn']:
                             if run_sms['spawn'][sms_id] == 1:
-                                is_run = True
-                                break
+                                check_sms_start.append(sms_id)
                         sms_ls = []
-                        if is_run:
+                        if check_sms_start:
                             watcher_name = '%s@/scheduler/agent/sms' % agent_name
                             if watcher_name not in self.watch_record.keys():
                                 sms_ls = self.zkctrl.get_children('/scheduler/agent/sms',
@@ -278,6 +289,11 @@ class AgentMgr:
                                             else:
                                                 sms_stat = self.zkctrl.get(sms_node)
                                             self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
+
+                            for sms in check_sms_start:
+                                sms_node = '%s@%s'%(agent_name,sms)
+                                self.agent_mgr[agent_name].start_monitor_sms(sms_node,self.regist_timeout)
+                                log = 'start check %s regist'%sms_node
 
                     elif monitor_stat[0] == 'regist_timeout':
                         self.agent_regist_timeout[agent_name] += 1
@@ -419,6 +435,7 @@ class AgentMgr:
                         new_stat = monitor_stat[1]
                         self.agent_stat.update_sms_state(agent_name,sms_name,new_stat)
 
+                        # 新的状态产生通知延迟切换
                         self.cond.acquire()
                         self.sms_state_transform.append({sms_name:new_stat})
                         self.cond.notify()
@@ -432,6 +449,27 @@ class AgentMgr:
                         del self.watch_record[watch_node]
                         log = 'del watcher record %s,cur watch record:%s'%(watch_node,self.watch_record)
                         self.loger.info(log)
+
+                    if monitor_stat[0] == 'regist':
+                        sms_node = '%s@%s'%(agent_name,sms_name)
+                        self.sms_regist_timeout[sms_node] = 0
+                        log = '%s regist'%sms_node
+                        self.loger.info(log)
+                    if monitor_stat[0] == 'regist_timeout':
+                        sms_node = '%s@%s'%(agent_name,sms_name)
+                        if sms_node not in self.sms_regist_timeout.keys():
+                            self.sms_regist_timeout[sms_node] = 1
+                        else:
+                            self.sms_regist_timeout[sms_node] += 1
+                        if self.sms_regist_timeout[sms_node] == 3:
+                            new_agent = self.agent_stat.get_sms_run_host_in_piroirty(sms_name,1)
+                            if new_agent:
+                                self.switch(sms_name,agent_name,new_agent,False,False)
+                                log = '%s regist %d times timeout ,so switch it(%s->%s)'%(sms_node,3,
+                                                                                          agent_name,new_agent)
+                                self.loger.info(log)
+                        else:
+                             self.agent_mgr[agent_name].start_monitor_sms(sms_node,self.regist_timeout)
 
 
                 #消息处理完成
@@ -448,16 +486,30 @@ class AgentMgr:
         return self.agent_stat.get_all_run_sms_info()
 
     # 执行切换操作
-    def switch(self,sms,cur_host,new_host):
+    def switch(self,sms,cur_host,new_host,is_need_delay=True,check_stat=True):
         #print u'AgentMgr:switch'
         stat = self.agent_stat.get_sms_stat(cur_host, sms)
         log = 'switch %s ,cur stat %s'%(sms,stat)
         self.loger.info(log)
-        if int(stat) == 101 or int(stat)==1:
+        if check_stat:
+            if int(stat) == 101 or int(stat)==1:
+                msg_txt = '{"%s":["shutdown_sms","%s"]}'%(cur_host,sms)
+                self.msg_queue.put(msg_txt)
+                msg_txt = '{"%s":["startup_sms","%s"]}' %(new_host, sms)
+                self.msg_queue.put(msg_txt)
+                return True
+            elif int(stat) == 201 and is_need_delay:
+                self.delay_switch[sms]=[cur_host,new_host]
+                return True
+            else:
+                return False
+        else:
             msg_txt = '{"%s":["shutdown_sms","%s"]}'%(cur_host,sms)
             self.msg_queue.put(msg_txt)
             msg_txt = '{"%s":["startup_sms","%s"]}' %(new_host, sms)
             self.msg_queue.put(msg_txt)
+            return True
+
 
     # 把当前状态更新到/scheduler/server/masterx上，以便于和备机同步状态
     def update_master_zkstate(self):

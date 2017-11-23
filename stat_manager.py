@@ -335,6 +335,9 @@ class StatMgr:
             agent_name = self.LM.get_sms_location(sms_name, i, True)
             if agent_name:
                 return agent_name
+    #获取sms的指定运行优先级下的主机
+    def get_sms_run_host_in_piroirty(self,sms,pirority):
+        return self.LM.get_sms_location(sms,pirority,True)
 
     # 获取不可用的主机
     def getDisableHost(self):

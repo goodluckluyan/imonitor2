@@ -33,8 +33,10 @@ class MonitorAgent:
         self.agent_name = agentname
         self.parent_path = path
         self.th = Thread(target=self.check_agent,args=(timeout,))
+        self.sms_th ={}
         self.zkclt = zkclt #zkpython.ZKClient('%s:2181'%zk_server_ip)
         self.bexist = False
+        self.sms_bexist={}
         self.agent_stat = 'noregist'
         self.server_node_name = server_node_name
         self.loger = loger
@@ -46,6 +48,45 @@ class MonitorAgent:
     def restart_monitor(self,timeout):
         self.th = Thread(target=self.check_agent, args=(timeout,))
         self.th.start()
+
+    def start_monitor_sms(self,sms_name,timeout):
+        self.sms_th[sms_name] = Thread(target=self.check_sms,args=(sms_name,timeout,))
+        self.sms_th[sms_name].start()
+
+    def check_sms(self,sms_name,timeout):
+        '''监听slaver@sms是否注册'''
+        # 开始监听/scheduler/agent/sms/slave@sms
+        self.sms_bexist[sms_name] = False
+        tm_cnt = 0
+        while not self.sms_bexist[sms_name] and (timeout == 0 or tm_cnt <= timeout):
+            tm_cnt += 1
+            self.zkclt.async('/scheduler/agent/sms')
+            child_node = self.zkclt.get_children('/scheduler/agent/sms')  # 检测agent注册
+            if sms_name in child_node:
+               node_name =  '/scheduler/agent/sms/%s' %sms_name
+               stat = self.zkclt.get(node_name)
+               if int(stat[0])>100:#只有返回状态合格才算注册成功
+                   self.sms_bexist[sms_name] = True
+                   msg_txt = '{"%s":["regist"]}' % (sms_name)
+                   cur_role = getLocalhostRole()
+                   log = 'cur role %s' % cur_role
+                   self.loger.info(log)
+                   if cur_role and cur_role !='follower' :
+                        self.msg_queue.put(msg_txt) #交由上层AgentMgr.process处理
+                   else:
+                        self.loger.info(msg_txt)
+                   break
+
+            time.sleep(1)
+        if not self.sms_bexist[sms_name] and tm_cnt > timeout:
+            msg_txt = '{"%s":["regist_timeout"]}' % (sms_name)
+            cur_role = getLocalhostRole()
+            log = 'cur role %s' % cur_role
+            self.loger.info(log)
+            if cur_role and cur_role != 'follower':
+                self.msg_queue.put(msg_txt)  # 交由上层AgentMgr.process处理
+            else:
+                self.loger.info(msg_txt)
 
 
     def check_agent(self,timeout):
