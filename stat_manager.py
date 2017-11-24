@@ -36,7 +36,7 @@ class StatMgr:
 
     # 设置集群状态
     def set_cluster_stat(self,stat):
-        self.stat_lock.require()
+        self.stat_lock.acquire()
         self.cluster_stat[0] = self.cluster_stat[1]
         self.cluster_stat[1] = stat
         self.stat_lock.release()
@@ -58,7 +58,7 @@ class StatMgr:
         new_stat[0] = new_stat[1]            # 保留上次的状态
         new_stat[1] = state                  # 保存新的状态
 
-        if (new_stat[0] in ['regist','unregist','spawning'])\
+        if (new_stat[0] in ['regist','unregist','spawning','watching'])\
                 and new_stat[1] == 'regist':     # 首次注册成功
             log = 'enter spawn process'
             self.log.info(log)
@@ -68,7 +68,6 @@ class StatMgr:
             run_sms_txt = json.dumps(run_sms)                         # 转成json
             msg_txt = '{"%s":["spawn",%s]}'%(agent_name,run_sms_txt)
             self.msg_queue.put(msg_txt)
-
         if new_stat[1] == 'regist_timeout':
             #找到接管此主机的主机，并发送消息给上层
             switch_agent = {}
@@ -211,13 +210,13 @@ class StatMgr:
             stat_dict = self.stat_matrix[agent_name]['sms']
             stat_dict[sms_name] = ['',state]
 
-        if self.stat_matrix[agent_name]['agent_state'][1] == 'spawning' and state== '101':
+        if self.stat_matrix[agent_name]['agent_state'][1] == 'spawning' and int(state) > 100:
             spawn_sms_dict =  self.stat_matrix[agent_name]['spawn']
             id_ls = []
             for id in spawn_sms_dict:
                 if spawn_sms_dict[id] == 1:     #找到所有在本机启动的sms
                     id_ls.append(id)
-            if  stat_dict.keys() == id_ls:      #所有spawn的sms都启动成功,则转到watching 状态
+            if  stat_dict.keys().sort() == id_ls.sort():      #所有spawn的sms都启动成功,则转到watching 状态
                 self.update_agent_state(agent_name,'watching')
 
                 #如果所有agent都进入watching状态，在把集群状态更新到working
@@ -229,7 +228,7 @@ class StatMgr:
 
                 if not bFind:
                     self.set_cluster_stat('working')
-        elif self.stat_matrix[agent_name]['agent_state'][1] == 'take_over' and state == '101':
+        elif self.stat_matrix[agent_name]['agent_state'][1] == 'take_over' and int(state) > 100:
             takeover_sms_dict =  self.stat_matrix[agent_name]['take_over']
             diff = set(takeover_sms_dict).difference(set(stat_dict))#求差集
             if not diff:#如果是空集，则说明takeover_sms_dict全部包含到stat_dict了
@@ -237,7 +236,7 @@ class StatMgr:
                 self.update_agent_state(agent_name, 'take_over_done')  # 所有take over的sms都启动成功
                 self.takeover_matrx[agent_name] = takeover_sms_dict.keys()
 
-        elif self.stat_matrix[agent_name]['agent_state'][1] == 'startup_sms' and state == '101':
+        elif self.stat_matrix[agent_name]['agent_state'][1] == 'startup_sms' and int(state) > 100:
             start_sms = self.stat_matrix[agent_name]['startup_sms']
             if sms_name == start_sms:
                 del self.stat_matrix[agent_name]['startup_sms']

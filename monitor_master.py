@@ -544,12 +544,14 @@ class AgentMgr:
 
 
 
-def getNodeHealthStat(self):
-        dis_ls = self.agent_mgr.getDisableHost()
-        if len(dis_ls)>0:
-            return False
-        else:
-            return True
+    def getNodeHealthStat(self):
+            dis_ls = self.agent_mgr.getDisableHost()
+            log = 'get disable host %s'%dis_ls
+            self.loger.info(log)
+            if len(dis_ls)>0:
+                return False
+            else:
+                return True
 
 
 class MasterMgr:
@@ -834,6 +836,11 @@ def main(args,loger):
     server_node_name = '/scheduler/server/%s' %localhost_name
     loger.info( server_node_name)
     if not zkctl.exists(server_node_name):
+        zkctl.create(server_node_name, "", 1)
+    else:
+        while zkctl.exists(server_node_name):
+            time.sleep(2)
+            log = '%s has exist, wait for it deleted'%server_node_name
         zkctl.create(server_node_name, "", 1)
 
 

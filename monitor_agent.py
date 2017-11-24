@@ -157,6 +157,7 @@ class EventMgr:
                         self.loger.info(log)
                         self.zkctrl.delete(path)
                     self.sms[hallid].setstat(new_stat[hallid])
+                    self.sms_stat[hallid]  = 0
 
             self.lock.release()
             self.task_queue.task_done()
