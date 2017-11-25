@@ -545,7 +545,7 @@ class AgentMgr:
 
 
     def getNodeHealthStat(self):
-            dis_ls = self.agent_mgr.getDisableHost()
+            dis_ls = self.agent_stat.getDisableHost()
             log = 'get disable host %s'%dis_ls
             self.loger.info(log)
             if len(dis_ls)>0:
@@ -906,9 +906,11 @@ def main(args,loger):
             continue
         for sms_id in all_run_sms:
             spyne_webservice.g_sms_stat[sms_id][1] = all_run_sms[sms_id][1]#1 为sms的运行位置
+
+        #每隔30秒输出一次排序后的状态
         cnt += 1
         if cnt % 15 == 0:
-            log = 'all sms run stat:%s'%all_run_sms
+            log = 'all sms run stat:%s'%[(k,all_run_sms[k]) for k in sorted(all_run_sms.keys())]
             loger.info(log)
             cnt = 0
   except:

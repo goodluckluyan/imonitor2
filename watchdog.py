@@ -86,7 +86,7 @@ class watchdog:
             #return 101
         except Exception,ex:
             tm=time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
-            log="%s getsmsstatus failed: %s\n"%(tm, ex)
+            log="%s getsmsstatus(localhost:%d) failed: %s\n"%(tm,self.wsport, ex)
             self.loger.info(log)
             return -1
 
@@ -219,7 +219,7 @@ class watchdog:
                 #控制输出频率
                 cnt += 1
                 if cnt == 60:
-                    log = "%s:%d" % (self.grepcmd, int(ret))
+                    log = "%s:%d stat:%d" % (self.grepcmd, int(ret),self.sms_stat)
                     self.loger.info(log)
                     cnt = 0
 

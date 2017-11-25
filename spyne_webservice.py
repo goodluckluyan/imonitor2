@@ -117,17 +117,22 @@ class IMonitorWebServices(ServiceBase):
             all_run_sms = agent_mgr.get_all_run_sms()
             cur_host = all_run_sms[hallid][2]
             #print 'setHallRunHost switch %s %s %s'%(hallid,cur_host,host)
-            agent_mgr.switch(hallid,cur_host,host)
-        return 0
+            if cur_host != host:
+                agent_mgr.switch(hallid,cur_host,host)
+                return 0
+            else:
+                return 1
 
+
+    # return 0 :健康的 1：节点有问题  2：数据库不同步
     @rpc(_returns=Integer)
     def getNodeHealthStat(self):
         agent_mgr = getMainObj()
         is_health = agent_mgr.getNodeHealthStat()
         if is_health:
-            return 1
-        else:
             return 0
+        else:
+            return 1
 
 
     @rpc(Unicode,_returns=Integer)
