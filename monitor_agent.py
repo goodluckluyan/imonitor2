@@ -81,86 +81,87 @@ class EventMgr:
         self.loger = loger
         for hallid in sms_path:
             sms_info = sms_path[hallid]
-            self.sms[hallid] = watchdog.watchctrl(sms_info[0],sms_info[1],sms_info[2],sms_info[3],loger,hallid)
+            self.sms[hallid] = watchdog.watchctrl(sms_info[0],sms_info[1],sms_info[2],sms_info[3],self.task_queue,loger,hallid)
             self.sms_stat[hallid] = 0
 
     def process(self):
-        while True:
-            # 获取/scheduler/task/%hostname的最新状态，如果队列无数据则阻塞
-            task_str = self.task_queue.get()
+        try:
+            while True:
+                # 获取/scheduler/task/%hostname的最新状态，如果队列无数据则阻塞
+                task_str = self.task_queue.get()
 
-            #根据新状态改变看门狗状态,task状态格式为'{'sms1':1,'sms2':8}'
-           
-            self.task = json.loads(task_str[0])
-            log =  "receive msg %s ,task %s" % (task_str, self.task)
-            self.loger.info(log)
-            self.lock.acquire()
+                #根据新状态改变看门狗状态,task状态格式为'{'sms1':1,'sms2':8}'
 
-            new_stat={}
-            for cmd in self.task:
-                # if cmd == 'spawn':
-                #     if self.task[cmd][hallid] == 1:
-                #         path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
-                #         if not self.zkctrl.exists(path):
-                #             log = "create path zk:%s" % path
-                #             self.loger.info(log)
-                #             self.zkctrl.create(path, '%d' % self.task[cmd][hallid], 1)
-                #         self.sms[hallid].setstat(self.task[cmd][hallid])
-                #
-                #     elif self.task[cmd][hallid] == 8:
-                #         path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
-                #         if self.zkctrl.exists(path):
-                #             log = 'delete path zk:%s' % path
-                #             self.loger.info(log)
-                #             self.zkctrl.delete(path)
-                #         self.sms[hallid].setstat(self.task[cmd][hallid])
-                # if cmd == 'take_over':
-                #     for hallid in self.task[cmd]:
-                #         if self.task[cmd][hallid] == 1:
-                #             path = '/scheduler/agent/sms/%s@%s' % (self.hostname,hallid)
-                #             if not self.zkctrl.exists(path):
-                #                 log =  "create path zk:%s"%path
-                #                 self.loger.info(log)
-                #                 self.zkctrl.create(path, '%d' %self.task[cmd][hallid], 1)
-                #             self.sms[hallid].setstat(self.task[cmd][hallid])
-
-                # apawn和takeover中只要有个一个是1,则启动
-                log = 'task(%s:%s)'%(cmd,self.task[cmd])
+                self.task = json.loads(task_str)
+                log =  "receive msg %s ,task %s" % (task_str, self.task)
                 self.loger.info(log)
-                for hallid in self.task[cmd]:
-                    log = 'new_stat: %s'%new_stat
-                    self.loger.info(log)
-                    if hallid in new_stat.keys():
-                        if self.task[cmd][hallid] == 1 or new_stat[hallid] == 1:
-                            new_stat[hallid] = 1
-                        else:
-                            new_stat[hallid] = 8
-                    else:
-                        new_stat[hallid] = self.task[cmd][hallid]
+                self.lock.acquire()
 
+                new_stat={}
+                for cmd in self.task.keys():
+                    # 设置重启时间
+                    if cmd == 'sms_reboot_time':
+                        rt = self.task['sms_reboot_time']
+                        if len(rt) == 2:
+                            self.set_sms_reboot_time(rt)
 
-            log = 'cur run stat %s'%new_stat
-            self.loger.info(log)
-            for hallid in new_stat:
-                if new_stat[hallid] == 1:
-                    path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
-                    if not self.zkctrl.exists(path):
-                        log = "create path zk:%s" % path
+                    # sms启动成功
+                    if cmd == 'regist':
+                        hallid = self.task[cmd]
+                        path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                        if not self.zkctrl.exists(path):
+                            log = "create path zk:%s" % path
+                            self.loger.info(log)
+                            self.zkctrl.create(path, '1', 1)
+
+                    #  进程丢失
+                    if cmd == 'delete':
+                        hallid = self.task[cmd]
+                        path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                        if self.zkctrl.exists(path):
+                            log = "delete path zk:%s" % path
+                            self.loger.info(log)
+                            self.zkctrl.delete(path)
+                            self.sms_stat[hallid] = 0
+
+                    # apawn和takeover中只要有个一个是1,则启动
+                    if cmd == 'spawn' or cmd == 'take_over':
+                        log = 'task(%s:%s)'%(cmd,self.task[cmd])
                         self.loger.info(log)
-                        self.zkctrl.create(path, '%d' % new_stat[hallid], 1)
-                    self.sms[hallid].setstat(new_stat[hallid])
+                        for hallid in self.task[cmd]:
+                            log = 'new_stat: %s'%new_stat
+                            self.loger.info(log)
+                            if hallid in new_stat.keys():
+                                if self.task[cmd][hallid] == 1 or new_stat[hallid] == 1:
+                                    new_stat[hallid] = 1
+                                else:
+                                    new_stat[hallid] = 8
+                            else:
+                                new_stat[hallid] = self.task[cmd][hallid]
 
-                elif new_stat[hallid] == 8:
-                    path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
-                    if self.zkctrl.exists(path):
-                        log = 'delete path zk:%s' % path
-                        self.loger.info(log)
-                        self.zkctrl.delete(path)
-                    self.sms[hallid].setstat(new_stat[hallid])
-                    self.sms_stat[hallid]  = 0
 
-            self.lock.release()
-            self.task_queue.task_done()
+                log = 'cur run stat %s'%new_stat
+                self.loger.info(log)
+                for hallid in new_stat:
+                    if new_stat[hallid] == 1:
+                        self.sms[hallid].setstat(new_stat[hallid])
+
+                    elif new_stat[hallid] == 8:
+                        path = '/scheduler/agent/sms/%s@%s' % (self.hostname, hallid)
+                        if self.zkctrl.exists(path):
+                            log = 'delete path zk:%s' % path
+                            self.loger.info(log)
+                            self.zkctrl.delete(path)
+                        self.sms[hallid].setstat(new_stat[hallid])
+                        self.sms_stat[hallid]  = 0
+
+                self.lock.release()
+                self.task_queue.task_done()
+        except:
+            fp = StringIO.StringIO()
+            traceback.print_exc(file=fp)
+            message = fp.getvalue()
+            loger.info(message)
 
     def addmsg(self,msg):
         log = 'add msg',msg
@@ -197,6 +198,10 @@ class EventMgr:
         self.task_queue.join()
 
 
+    def set_sms_reboot_time(self,reboot_time):
+        for hallid in self.sms:
+            if self.sms[hallid]:
+                self.sms[hallid].set_sms_reboot_time(reboot_time[0],reboot_time[1])
 
 
 def watcher(h_zk,w_type,w_stat,w_path):
@@ -213,7 +218,7 @@ def watcher(h_zk,w_type,w_stat,w_path):
     if w_type == 3:
        try:
            new_value = zookeeper.get(h_zk, w_path, watcher)
-           mgr.addmsg(new_value)
+           mgr.addmsg(new_value[0])
            log = 'put new value(%s) into queue'%new_value
            loger.info(log)
        except Exception,err:
@@ -244,7 +249,7 @@ def children_watcher(h_zk,w_type,w_stat,w_path):
        value = zookeeper.get(h_zk,'%s/%s'%(w_path,hostname),watcher)
        log =  "host %s,value:%s"%(hostname,value)
        loger.info(log)
-       mgr.addmsg(value)
+       mgr.addmsg(value[0])
 
 
 def init(zkclt,loger):
@@ -346,10 +351,22 @@ if __name__ == '__main__':
     if not init(zkclt,loger):
         exit(0)
 
+
+
     #开启事件处理
     MainMgr = EventMgr(hostname,10,zkclt,loger)
     setLogAndMgr(loger,MainMgr)
     MainMgr.start()
+
+    # 读取配置
+    cfg_txt = zkclt.get('/scheduler/task',watcher)
+    log = 'read confg form /scheduler/task(%s)'%cfg_txt[0]
+    loger.info(log)
+    if len(cfg_txt[0])>1:
+        cfg = json.loads(cfg_txt[0])
+        rt = cfg['sms_reboot_time']
+        if len(rt) == 2:
+            MainMgr.set_sms_reboot_time(rt)
 
 
     # 开始监听/scheduler/task/%hostname
@@ -362,7 +379,7 @@ if __name__ == '__main__':
         task = zkclt.get('/scheduler/task/%s' % hostname, watcher)
         log = 'zookeeper get info :%s'%task[0]
         loger.info(log)
-        MainMgr.addmsg(task)
+        MainMgr.addmsg(task[0])
 
 
     while True:

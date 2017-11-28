@@ -30,15 +30,15 @@ class watchdog:
     '''看门狗类'''
 
 
-    def __init__(self,path,exename,port,para ,loger,b_fork=False):
+    def __init__(self,path,exename,port,para ,loger,notify_fun,sms_name,b_fork=False):
         self.service_name = exename
         self.service_path = path
         self.configfilepath = para
         self.logfile =  '%s/watchdog.log'%work_dir
-        self.reboottmfile = '%s/rebootontimer.tmp'%work_dir
+        self.reboottmfile = '%s/rebootontimer.tmp'%path
         self.grepcmd = "ps -ef|grep %s|grep -v \"grep %s\"|awk '{print $2}'"%(self.service_path + "/" + self.service_name,
                                                                               self.service_path + "/" + self.service_name)
-        self.check_interval_sec = 1
+        self.check_interval_sec = 3
         self.run_service_name = "%s/%s %s 1>/dev/null &"%(self.service_path, self.service_name, self.configfilepath)
         self.pid = 0
         self.prepid = 0
@@ -51,6 +51,10 @@ class watchdog:
         self.wsclient=''
         self.loger = loger
         self.bfork = b_fork
+        self.first_reboot_tm = 3
+        self.second_reboot_tm = 7
+        self.sms_name = sms_name
+        self.notify_fun = notify_fun
 
 
     def check_init_stat(self):
@@ -85,16 +89,23 @@ class watchdog:
             return int(ret.workstate)
             #return 101
         except Exception,ex:
-            tm=time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
-            log="%s getsmsstatus(localhost:%d) failed: %s\n"%(tm,self.wsport, ex)
+            log="getsmsstatus(localhost:%d) failed: %s\n"%(self.wsport, ex)
             self.loger.info(log)
             return -1
 
+    def is_scheduled(self):
+        try:
+            ret = self.wsclient.service.IsScheduled()
+            return  ret
+        except Exception, ex:
+            log = " is_scheduled(localhost:%d) failed: %s\n" % (self.wsport, ex)
+            self.loger.info(log)
+            return False
 
     def isreboot(self):
         try:
             tm=time.localtime()
-            if tm.tm_hour==4:
+            if tm.tm_hour==self.first_reboot_tm or tm.tm_hour == self.second_reboot_tm:
                 if os.path.exists(self.reboottmfile):
                     state=os.stat(self.reboottmfile)
                     fmtm=time.localtime(state.st_mtime)
@@ -195,6 +206,15 @@ class watchdog:
             sys.stderr.write("fork #1 failed: (%d) %s\n" % (e.errno, e.strerror))
             sys.exit(1)
 
+    #设置两次重启时间
+    def set_reboot_time(self,first_reboot,second_reboot):
+        log = '%s set reboot time 1:%d 2:%d'%(self.sms_name,first_reboot,second_reboot)
+        self.loger.info(log)
+        self.first_reboot_tm = first_reboot
+        self.seconcd_reboot_tm = second_reboot
+
+
+
     def watchfun(self):
         runtm = time.time()
         self.bExit = False
@@ -233,6 +253,9 @@ class watchdog:
                 ret = int(ret)
             except ValueError, ex:
                 ret = -1
+
+            if self.notify_fun:
+                self.notify_fun(ret,self.sms_stat)
 
             # writelogfile("ret %d,time interval:%d %d\n"%(ret,time.time(),runtm))
             if ret == 0:
@@ -301,13 +324,32 @@ class watchdog:
 
 class watchctrl:
     '''对看门狗进行控制'''
-    def __init__(self,path,cmd,para,wsport,loger,sms_name,b_fork=False):
-        self.dog = watchdog(path,cmd,wsport,para,loger,b_fork)
-        #self.dog.initWebService(wsport)
-        self.stat = self.dog.check_init_stat() + NOWATCH
+    def __init__(self,path,cmd,para,wsport,msg_queue,loger,sms_name,b_fork=False):
         self.loger = loger
         self.name = sms_name
+        self.parent_msg_queue = msg_queue
+        self.sms_pid = 0
+        self.sms_stat = 0
+        if self.parent_msg_queue:
+            self.dog = watchdog(path, cmd, wsport, para, loger, self.notification, sms_name, b_fork)
+        else:
+            self.dog = watchdog(path, cmd, wsport, para, loger, None, sms_name, b_fork)
+        self.stat = self.dog.check_init_stat() + NOWATCH
 
+    # 用于watchdog的状态改变或pid改变的回调
+    def notification(self,pid,state):
+        log = '%s watchctrl rec msg %d %d'%(self.name,pid,state)
+        self.loger.info(log)
+        if self.parent_msg_queue:
+            if pid <= 0 and self.sms_pid != 0:
+                msg = '{"delete":"%s"}' % (self.name)
+                self.parent_msg_queue.put(msg)
+                self.sms_pid = 0
+            elif pid > 0 and self.sms_pid == 0 :
+                self.sms_stat = pid
+                msg = '{"regist":"%s"}' % (self.name)
+                self.parent_msg_queue.put(msg)
+                self.sms_pid = pid
 
     def start(self):
         #self.wt.setDaemon(True)
@@ -366,6 +408,9 @@ class watchctrl:
             return stat
         else:
             return -1
+
+    def set_sms_reboot_time(self,first_reboot,second_reboot):
+        self.dog.set_reboot_time(first_reboot,second_reboot)
 
 
 if __name__ == '__main__':

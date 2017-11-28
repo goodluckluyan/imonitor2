@@ -46,12 +46,20 @@ g_eth_stat =  {'10.7.75.60': ['10.7.75.60', 102400,10240],
 
 class MainObj:
     AgentMgr = None
+    DB_Status = -1
 
 def setMainObj(obj):
     MainObj.AgentMgr = obj
 
 def getMainObj():
     return MainObj.AgentMgr
+
+def setDBSyncStat(db_stat):
+    MainObj.DB_Status = db_stat
+
+def getDBSyncStat():
+    return MainObj.DB_Status
+
 
 class sms_loc_info(ComplexModel):
     hallid = Unicode(nillable=False)
@@ -129,10 +137,13 @@ class IMonitorWebServices(ServiceBase):
     def getNodeHealthStat(self):
         agent_mgr = getMainObj()
         is_health = agent_mgr.getNodeHealthStat()
-        if is_health:
+        db_stat = getDBSyncStat()
+        if is_health and db_stat == 0:
             return 0
-        else:
+        elif not is_health and db_stat == 0:
             return 1
+        elif is_health and db_stat != 0:
+            return 2
 
 
     @rpc(Unicode,_returns=Integer)

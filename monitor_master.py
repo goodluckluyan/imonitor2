@@ -257,7 +257,7 @@ class AgentMgr:
                             self.zkctrl.create(task_node, runsms_json,1)   # 下发任务,即更新task的状态
                         self.agent_cmd_txt[agent_name] = runsms_json       # 记录当前命令语句
 
-                        #找到是否有启动的sms
+                        # 找到是否有启动的sms
                         run_sms = json.loads(runsms_json)
                         check_sms_start=[]
                         for sms_id in run_sms['spawn']:
@@ -275,7 +275,7 @@ class AgentMgr:
 
                             self.agent_stat.update_agent_state(agent_name,'spawning',runsms_json)# 更新状态到spawning
 
-                            #检测是否sms已经运行
+                            # 检测是否sms已经运行
                             if sms_ls:
                                 for sms in sms_ls:
                                     agt_id,sms_id = sms.split('@')
@@ -290,6 +290,7 @@ class AgentMgr:
                                                 sms_stat = self.zkctrl.get(sms_node)
                                             self.agent_stat.update_sms_state(agent_name, sms_id, sms_stat[0])
 
+                            # 启动对sms的运行检测
                             for sms in check_sms_start:
                                 sms_node = '%s@%s'%(agent_name,sms)
                                 self.agent_mgr[agent_name].start_monitor_sms(sms_node,self.regist_timeout)
@@ -450,6 +451,12 @@ class AgentMgr:
                         log = 'del watcher record %s,cur watch record:%s'%(watch_node,self.watch_record)
                         self.loger.info(log)
 
+                        # 如果agent节点存在，则认为是sms本身的问题，所以再等待注册
+                        if self.zkctrl.exists('/scheduler/agent/%s'%agent_name):
+                            sms_node = '%s@%s' % (agent_name, sms_name)
+                            self.agent_mgr[agent_name].start_monitor_sms(sms_node, self.regist_timeout)
+                            log = 'start check %s regist' % sms_node
+
                     if monitor_stat[0] == 'regist':
                         sms_node = '%s@%s'%(agent_name,sms_name)
                         self.sms_regist_timeout[sms_node] = 0
@@ -459,8 +466,13 @@ class AgentMgr:
                         sms_node = '%s@%s'%(agent_name,sms_name)
                         if sms_node not in self.sms_regist_timeout.keys():
                             self.sms_regist_timeout[sms_node] = 1
-                        else:
+                        elif self.zkctrl.exists('/scheduler/agent/%s'%agent_name):#只对agent节点存在的进行处理
                             self.sms_regist_timeout[sms_node] += 1
+
+                        # sms注册超时切换的前提是agent节点存在，否则不进行超时计数
+                        if not self.zkctrl.exists('/scheduler/agent/%s'%agent_name):
+                            self.sms_regist_timeout[sms_node] = 0
+
                         if self.sms_regist_timeout[sms_node] == 3:
                             new_agent = self.agent_stat.get_sms_run_host_in_piroirty(sms_name,1)
                             if new_agent:
@@ -572,7 +584,7 @@ class MasterMgr:
 
         # 开启导片sms
         self.ingest_dog = watchdog.watchctrl(ingest_sms_info['path'], ingest_sms_info['cmd'],
-                                             ingest_sms_info['parameter'], ingest_sms_info['port'], loger,'ingest_sms',True)
+                                             ingest_sms_info['parameter'], ingest_sms_info['port'], None,loger,'ingest_sms',True)
 
         if localhost=='master1':
             self.role = 'onlyleader'
@@ -741,6 +753,13 @@ def writepidfile(file):
         f.write("%s" % os.getpid())
     return
 
+def check_db_sync_stat():
+    script_file = '/usr/local/imonitor2/mysqlreplication'
+    cmd = 'bash %s'%script_file
+    ret = os.system(cmd)
+    stat = ret >> 8 & 0xff
+    return stat
+
 def usage():
     print 'sms_watchdog usage:'
     print '-h,--help: print help message.'
@@ -832,6 +851,14 @@ def main(args,loger):
     zkctl.async()
     localhost_name = cfg['NodeName']
 
+    # 获取sms的重启时间点
+    sms_reboot_time = cfg['sms_reboot_time']
+    reboot_cfg = []
+    reboot_cfg.append(sms_reboot_time['first'])
+    reboot_cfg.append(sms_reboot_time['second'])
+    conf_txt = '{"sms_reboot_time":%s}'%reboot_cfg
+    zkctl.set('/scheduler/task',conf_txt)
+
     #  根据NodeName创建元服务节点
     server_node_name = '/scheduler/server/%s' %localhost_name
     loger.info( server_node_name)
@@ -909,6 +936,9 @@ def main(args,loger):
 
         #每隔30秒输出一次排序后的状态
         cnt += 1
+        if cnt % 3 == 0:
+            db_stat = check_db_sync_stat()
+            spyne_webservice.setDBSyncStat(db_stat)
         if cnt % 15 == 0:
             log = 'all sms run stat:%s'%[(k,all_run_sms[k]) for k in sorted(all_run_sms.keys())]
             loger.info(log)

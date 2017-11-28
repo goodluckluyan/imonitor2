@@ -204,13 +204,14 @@ class StatMgr:
             new_stat[0] = new_stat[1]      # 保留上次的状态
             if state == 'delete':
                 new_stat[NEW] = '0'
+                state = '0'
             else:
                 new_stat[NEW] = state              # 保存新的状态
         else:
             stat_dict = self.stat_matrix[agent_name]['sms']
             stat_dict[sms_name] = ['',state]
 
-        if self.stat_matrix[agent_name]['agent_state'][1] == 'spawning' and isinstance(state,int) and int(state) > 100:
+        if self.stat_matrix[agent_name]['agent_state'][1] == 'spawning'  and int(state) > 100:
             spawn_sms_dict =  self.stat_matrix[agent_name]['spawn']
             id_ls = []
             for id in spawn_sms_dict:
@@ -228,7 +229,7 @@ class StatMgr:
 
                 if not bFind:
                     self.set_cluster_stat('working')
-        elif self.stat_matrix[agent_name]['agent_state'][1] == 'take_over' and isinstance(state,int)  and int(state) > 100:
+        elif self.stat_matrix[agent_name]['agent_state'][1] == 'take_over'  and int(state) > 100:
             takeover_sms_dict =  self.stat_matrix[agent_name]['take_over']
             diff = set(takeover_sms_dict).difference(set(stat_dict))#求差集
             if not diff:#如果是空集，则说明takeover_sms_dict全部包含到stat_dict了
@@ -236,7 +237,7 @@ class StatMgr:
                 self.update_agent_state(agent_name, 'take_over_done')  # 所有take over的sms都启动成功
                 self.takeover_matrx[agent_name] = takeover_sms_dict.keys()
 
-        elif self.stat_matrix[agent_name]['agent_state'][1] == 'startup_sms' and isinstance(state,int) and int(state) > 100:
+        elif self.stat_matrix[agent_name]['agent_state'][1] == 'startup_sms'  and int(state) > 100:
             start_sms = self.stat_matrix[agent_name]['startup_sms']
             if sms_name == start_sms:
                 del self.stat_matrix[agent_name]['startup_sms']
@@ -253,7 +254,7 @@ class StatMgr:
                 if not bFind:
                     self.set_cluster_stat('working')
 
-        elif self.stat_matrix[agent_name]['agent_state'][1] == 'shutdown_sms' and state == 'delete':
+        elif self.stat_matrix[agent_name]['agent_state'][1] == 'shutdown_sms' and int(state) == '0':# 等于0就是等于delete
             shutdown_sms = new_stat = self.stat_matrix[agent_name]['shutdown_sms']
             if sms_name == shutdown_sms:
                 del self.stat_matrix[agent_name]['shutdown_sms']

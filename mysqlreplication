@@ -1,0 +1,33 @@
+#!/bin/sh
+
+DBuser=root
+DBpasswd=123456
+remoteip=10.7.75.81
+localip=10.7.75.80
+
+if ping -c 2 $remoteip >> /dev/null
+  then
+       echo network was OK
+  else
+      exit 1
+fi
+
+MIO=`mysql -u$DBuser -p$DBpasswd -e "show slave status\G;"|grep Slave_IO_Running|awk -F ': ' '{print $2}'`
+MSQL=`mysql -u$DBuser -p$DBpasswd -e "show slave status\G;"|grep Slave_SQL_Running|awk -F ': ' '{print $2}'`
+
+if [ "$MIO" = "Yes" ] && [ "$MSQL" = "Yes" ]
+   then
+       exit 0
+elif [ "$MSQL" = "No" ]
+     then
+         while mysql -u$DBuser -p$DBpasswd -e "show slave status\G;"|grep 'Last_SQL_Error'|awk -F ':' '{print $2}'|grep 'Duplicate entry'>>/dev/null
+               do 
+	         mysql -u$DBuser -p$DBpasswd -e "stop slave;"
+                 mysql -u$DBuser -p$DBpasswd -e "set global sql_slave_skip_counter = 1;"
+		 mysql -u$DBuser -p$DBpasswd -e "start slave;"
+	 done
+         exit 0
+elif [ "$MIO" = "No" ]
+      then
+          exit 1
+fi 
