@@ -393,9 +393,21 @@ class AgentMgr:
 
                     elif monitor_stat[0] == 'startup_sms':
                         self.agent_stat.update_agent_state(agent_name,"switching")
-                        if agent_name not in self.agent_cmd_txt.keys():
-                           self.agent_cmd_txt[agent_name]=''
+
+                        #如果没有命令字，则生成一个
+                        if agent_name not in self.agent_cmd_txt.keys() :
+                            all_sms_dict = {}
+                            all_sms  = self.agent_stat.get_sms_name()
+                            for sms in all_sms:
+                               all_sms_dict[sms] = 8 #stop
+                            cmd_txt = '{"spawn":%s}'%all_sms_dict
+                            cmd_txt = cmd_txt.replace("'", '"').replace('u"', '"')  # 去除u,替换单引号成双引号
+                            self.agent_cmd_txt[agent_name]=cmd_txt
+                            log = '%s cmd txt missing ,so rebuild cmd txt %s'%(agent_name,cmd_txt)
+                            self.loger.info(log)
                         agent_cmd_txt = self.agent_cmd_txt[agent_name]
+                        log = 'startup_sms:cur cmd txt %s'%agent_cmd_txt
+                        self.loger.info(log)
                         agent_cmd = json.loads(agent_cmd_txt)
                         spawn_sms_dic = agent_cmd['spawn']
 
@@ -413,7 +425,10 @@ class AgentMgr:
                         self.agent_cmd_txt[agent_name] = cmd
                         log =  "set /scheduler/task/%s:%s"%(agent_name,cmd)
                         self.loger.info(log)
-                        self.zkctrl.set('/scheduler/task/%s' % agent_name, cmd)
+                        if not self.zkctrl.exists('/scheduler/task/%s' % agent_name):
+                            self.zkctrl.create('/scheduler/task/%s' % agent_name,cmd)
+                        else :
+                            self.zkctrl.set('/scheduler/task/%s' % agent_name, cmd)
                         self.agent_stat.update_agent_state(agent_name, "startup_sms", sms)
 
                     elif monitor_stat[0] == 'switch_done':

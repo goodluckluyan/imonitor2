@@ -77,18 +77,18 @@ class StatMgr:
             log = 'enter take over process'
             self.log.info(log)
             # 获取主机当前运行的sms
-            if new_stat[0] in ['watching','regist_timeout','regist']:
-                sms_dict = self.stat_matrix[agent_name]['sms']
-                log = 'find %s run sms'%agent_name,sms_dict
-                self.log.info(log)
-                takeover_dict = self.stat_matrix[agent_name]['take_over']
-		
-                log = 'find %s takeover sms'%agent_name,takeover_dict
-                self.log.info(log)
-                for sms in sms_dict:
-                    #if sms_dict[sms] == 1 :#RUN:
-                    switch_ls.append(sms)
-                switch_ls += takeover_dict.keys()
+            #if new_stat[0] in ['watching','regist_timeout','regist']:
+            sms_dict = self.stat_matrix[agent_name]['sms']
+            log = 'find %s run sms'%agent_name,sms_dict
+            self.log.info(log)
+            takeover_dict = self.stat_matrix[agent_name]['take_over']
+
+            log = 'find %s takeover sms'%agent_name,takeover_dict
+            self.log.info(log)
+            for sms in sms_dict:
+                #if sms_dict[sms] == 1 :#RUN:
+                switch_ls.append(sms)
+            switch_ls += takeover_dict.keys()
 
             # 获取这台主机运行的sms,查找第一路径在这台主机上运行的sms,
 	    # 再获取这些sms的第二或第三路径直到找到运行正常的主机，
