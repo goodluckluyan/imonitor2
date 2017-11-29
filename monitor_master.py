@@ -353,6 +353,7 @@ class AgentMgr:
                             new_take_sms = new_take_sms.replace('u','').replace("'",'"')
                             take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)       # 因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
                         self.zkctrl.set('/scheduler/task/%s' % agent_name, take_over_txt)                # 更新task的状态
+                        self.agent_cmd_txt[agent_name] = take_over_txt
 
                         # 对/scheduler/agent/sms添加wather
                         watcher_name = '%s@/scheduler/agent/sms'%agent_name
@@ -382,7 +383,7 @@ class AgentMgr:
                         if 'take_over' in agent_cmd.keys():
                             takeover_sms_dic = agent_cmd['take_over']
                             if sms in takeover_sms_dic:
-                                spawn_sms_dic[sms] = LocationMgr.STOP
+                                takeover_sms_dic[sms] = LocationMgr.STOP
 
                         cmd = json.dumps(agent_cmd)
                         self.agent_cmd_txt[agent_name] = cmd
@@ -426,7 +427,7 @@ class AgentMgr:
                         log =  "set /scheduler/task/%s:%s"%(agent_name,cmd)
                         self.loger.info(log)
                         if not self.zkctrl.exists('/scheduler/task/%s' % agent_name):
-                            self.zkctrl.create('/scheduler/task/%s' % agent_name,cmd)
+                            self.zkctrl.create('/scheduler/task/%s' % agent_name,cmd,1)
                         else :
                             self.zkctrl.set('/scheduler/task/%s' % agent_name, cmd)
                         self.agent_stat.update_agent_state(agent_name, "startup_sms", sms)
@@ -481,8 +482,26 @@ class AgentMgr:
                         sms_node = '%s@%s'%(agent_name,sms_name)
                         if sms_node not in self.sms_regist_timeout.keys():
                             self.sms_regist_timeout[sms_node] = 1
-                        elif self.zkctrl.exists('/scheduler/agent/%s'%agent_name):#只对agent节点存在的进行处理
-                            self.sms_regist_timeout[sms_node] += 1
+
+                        elif self.zkctrl.exists('/scheduler/agent/%s'%agent_name):#只对agent节点存在,并且正在看护的sms进行处理
+                            cur_cmd_txt = self.agent_cmd_txt[agent_name]
+                            cur_cmd = json.loads(cur_cmd_txt)
+                            sms_exist = False
+                            if 'spawn' in cur_cmd.keys() and sms_name in cur_cmd['spawn']:
+                                if cur_cmd['spawn'][sms_name] == 1:#run
+                                    sms_exist = True
+                            if 'takeover' in cur_cmd.keys() and sms_name in cur_cmd['takeover']:
+                                if cur_cmd['takeover'][sms_name] == 1:#run
+                                    sms_exist = True
+                            log = 'cur cmd txt :%s'%cur_cmd
+                            self.loger.info(log)
+                            if sms_exist:
+                                log = '%s belong to %s,so +1 to timeout count'%(sms_name,agent_name)
+                                self.loger.info(log)
+                                self.sms_regist_timeout[sms_node] += 1
+                                self.agent_mgr[agent_name].start_monitor_sms(sms_node, self.regist_timeout)
+                            else:
+                                self.sms_regist_timeout[sms_node] = 0
 
                         # sms注册超时切换的前提是agent节点存在，否则不进行超时计数
                         if not self.zkctrl.exists('/scheduler/agent/%s'%agent_name):
@@ -495,8 +514,8 @@ class AgentMgr:
                                 log = '%s regist %d times timeout ,so switch it(%s->%s)'%(sms_node,3,
                                                                                           agent_name,new_agent)
                                 self.loger.info(log)
-                        else:
-                             self.agent_mgr[agent_name].start_monitor_sms(sms_node,self.regist_timeout)
+
+
 
 
                 #消息处理完成
@@ -555,6 +574,7 @@ class AgentMgr:
         self.agent_cmd_txt = stat_master['cur_cmd']
 
         #重新建立task节点
+        self.zkctrl.async('/scheduler/task')
         for agent_id in self.agent_cmd_txt:
             task_node = '/scheduler/task/%s' % agent_id
             self.zkctrl.create(task_node,self.agent_cmd_txt[agent_id], 1)

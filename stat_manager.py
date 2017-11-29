@@ -185,6 +185,7 @@ class StatMgr:
         elif new_stat[1] == 'take_over_done':
             log = "agnet %s take over done"%agent_name
             self.log.info(log)
+
 	    
 
 
