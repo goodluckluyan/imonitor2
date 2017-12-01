@@ -93,10 +93,14 @@ class watchdog:
             self.loger.info(log)
             return -1
 
-    def is_scheduled(self):
+    def is_can_reboot_sms(self):
         try:
-            ret = self.wsclient.service.IsScheduled()
-            return  ret
+            if self.wsclient:
+                ret = self.wsclient.service.IsCanRebootSms()
+                log = '%s IsScheduled:%s' % (self.sms_name, ret)
+                self.loger.info(log)
+                return ret
+
         except Exception, ex:
             log = " is_scheduled(localhost:%d) failed: %s\n" % (self.wsport, ex)
             self.loger.info(log)
@@ -113,7 +117,7 @@ class watchdog:
                         return False
 
                 smsstatus=self.getsmsstatus()
-                if smsstatus < 0 or smsstatus !=101:
+                if smsstatus < 0 or smsstatus !=101 :
                     return False
                 os.system("touch %s"%self.reboottmfile)
                 return True
@@ -313,8 +317,8 @@ class watchdog:
                         os.system("kill -9 %d" % ret)
                         continue
 
-
-            if self.isreboot() and ret > 0:
+            is_scheduled = self.is_can_reboot_sms()
+            if self.isreboot() and ret > 0 and is_scheduled:
                 os.system("kill -9 %d" % ret)
                 tm = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
                 self.loger.info("%s: routine reboot(kill -9 %d)\n" % (tm, ret))
