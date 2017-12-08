@@ -34,7 +34,7 @@ class StatMgr:
         self.cluster_stat = ['booting','booting']
         self.stat_lock = threading.Lock()
         self.log = log
-        self.wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
+
 
     # 设置集群状态
     def set_cluster_stat(self,stat):

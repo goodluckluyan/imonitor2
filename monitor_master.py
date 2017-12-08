@@ -976,18 +976,26 @@ def main(args,loger):
         is_take_over = False
         for sms_id in all_run_sms:
             if spyne_webservice.g_sms_stat[sms_id][1] != all_run_sms[sms_id][1]:
+                pre_loc = spyne_webservice.g_sms_stat[sms_id][1]
                 spyne_webservice.g_sms_stat[sms_id][1] = all_run_sms[sms_id][1]#1 为sms的运行位置
+                log = '%s from %s to %s'%(sms_id,pre_loc,spyne_webservice.g_sms_stat[sms_id][1])
+                loger.info(log)
                 is_take_over = True
 
         # 位置发生改变则通知web端
         if is_take_over:
-            if wsclient:
-                wsclient.service.isSwitchHall(True)
-            else:
-                wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
-                wsclient.service.isSwitchHall(True)
-            log = 'sms location change and notice web'
-            loger.info(log)
+            try:
+
+                if wsclient:
+                    wsclient.service.isSwitchHall(True)
+                else:
+                    wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
+                    wsclient.service.isSwitchHall(True)
+                log = 'sms location change and notice web'
+                loger.info(log)
+            except:
+                log = 'call webserivce isSwitchHall failed'
+                loger.info(log)
 
         # 每隔30秒输出一次排序后的状态
         cnt += 1
