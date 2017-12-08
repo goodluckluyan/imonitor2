@@ -15,6 +15,7 @@ import copy
 import pdb
 
 
+
 class StatMgr:
     '''
     状态管理：
@@ -33,6 +34,7 @@ class StatMgr:
         self.cluster_stat = ['booting','booting']
         self.stat_lock = threading.Lock()
         self.log = log
+        self.wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
 
     # 设置集群状态
     def set_cluster_stat(self,stat):
@@ -45,6 +47,8 @@ class StatMgr:
     def get_cluster_stat(self):
         stat = self.cluster_stat[1]
         return stat
+
+
 
     def update_agent_state(self,agent_name,state,value=''):
         '''
@@ -183,7 +187,7 @@ class StatMgr:
                     spawn_dic[value] = 1  # STOP
 
         elif new_stat[1] == 'take_over_done':
-            log = "agnet %s take over done"%agent_name
+            log = "agnet %s take over done " % agent_name
             self.log.info(log)
 
 	    

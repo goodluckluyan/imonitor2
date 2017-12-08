@@ -6,31 +6,34 @@ from spyne import Integer, Unicode, Array, ComplexModel
 from spyne.model.complex import Iterable
 from spyne.protocol.soap import Soap11
 from spyne.server.wsgi import WsgiApplication
-from wsgiref.simple_server import make_server
+from wsgiref import simple_server
+import SocketServer
+
 import sys
+import logging
 
 
 ip = '0.0.0.0'
 port = 8851
-# g_sms_location = {'sms1': ['1','10.7.75.60', 9001],'sms2': ['2','10.7.75.60', 9002],'sms3': ['3','10.7.75.60', 9003],
-#                   'sms4': ['4','10.7.75.60', 9004],'sms5': ['5','10.7.75.60', 9005],'sms6': ['6','10.7.75.60', 9006],
-#                   'sms7': ['7','10.7.75.60', 9007],'sms8': ['8','10.7.75.60', 9008],'sms9': ['9','10.7.75.60', 9009],
-#                   'sms10': ['10', '10.7.75.60', 9010]}
-#
-# g_sms_stat = {'sms1': ['1','10.7.75.60',9001],'sms2': ['2','10.7.75.60',9002],'sms3': ['3','10.7.75.60',9003],
-#               'sms4': ['4','10.7.75.63',9004],'sms5': ['5','10.7.75.63',9005],'sms6': ['6','10.7.75.63',9006],
-#               'sms7': ['7','10.7.75.64',9007],'sms8': ['8','10.7.75.64',9008],'sms9': ['9','10.7.75.64',9009],
-#               'sms10': ['9', '10.7.75.64', 9010]}
+g_sms_location = {'sms1': ['1','10.7.75.62', 9001],'sms2': ['2','10.7.75.62', 9002],'sms3': ['3','10.7.75.62', 9003],
+                   'sms4': ['4','10.7.75.63', 9004],'sms5': ['5','10.7.75.63', 9005],'sms6': ['6','10.7.75.63', 9006],
+                  'sms7': ['7','10.7.75.64', 9007],'sms8': ['8','10.7.75.64', 9008],'sms9': ['9','10.7.75.64', 9009],
+                   'sms10': ['10', '10.7.75.64', 9010]}
 
-g_sms_location = {'sms1': ['1','172.23.140.186', 9001],'sms2': ['2','172.23.140.186', 9002],'sms3': ['3','172.23.140.186', 9003],
-                  'sms4': ['4','172.23.140.186', 9004],'sms5': ['5','172.23.140.186', 9005],'sms6': ['6','172.23.140.186', 9006],
-                  'sms7': ['7','172.23.140.186', 9007],'sms8': ['8','172.23.140.186', 9008],'sms9': ['9','172.23.140.186', 9009],
-                  'sms10': ['10', '172.23.140.186', 9010]}
+g_sms_stat = {'sms1': ['1','10.7.75.62',9001],'sms2': ['2','10.7.75.62',9002],'sms3': ['3','10.7.75.62',9003],
+               'sms4': ['4','10.7.75.63',9004],'sms5': ['5','10.7.75.63',9005],'sms6': ['6','10.7.75.63',9006],
+               'sms7': ['7','10.7.75.64',9007],'sms8': ['8','10.7.75.64',9008],'sms9': ['9','10.7.75.64',9009],
+               'sms10': ['10', '10.7.75.64', 9010]}
 
-g_sms_stat = {'sms1': ['1','172.23.140.186',9001],'sms2': ['2','172.23.140.186',9002],'sms3': ['3','172.23.140.186',9003],
-              'sms4': ['4','172.23.140.186',9004],'sms5': ['5','172.23.140.186',9005],'sms6': ['6','172.23.140.186',9006],
-              'sms7': ['7','172.23.140.186',9007],'sms8': ['8','172.23.140.186',9008],'sms9': ['9','172.23.140.186',9009],
-              'sms10':['10','172.23.140.186',9010]}
+#g_sms_location = {'sms1': ['1','172.23.140.152', 9001],'sms2': ['2','172.23.140.152', 9002],'sms3': ['3','172.23.140.152', 9003],
+#                  'sms4': ['4','172.23.140.93', 9004],'sms5': ['5','172.23.140.93', 9005],'sms6': ['6','172.23.140.93', 9006],
+#                  'sms7': ['7','172.23.140.98', 9007],'sms8': ['8','172.23.140.98', 9008],'sms9': ['9','172.23.140.98', 9009],
+#                  'sms10': ['10', '172.23.140.98', 9010]}
+
+#g_sms_stat = {'sms1': ['1','172.23.140.152',9001],'sms2': ['2','172.23.140.152',9002],'sms3': ['3','172.23.140.152',9003],
+#              'sms4': ['4','172.23.140.93',9004],'sms5': ['5','172.23.140.93',9005],'sms6': ['6','172.23.140.93',9006],
+#              'sms7': ['7','172.23.140.98',9007],'sms8': ['8','172.23.140.198',9008],'sms9': ['9','172.23.140.98',9009],
+#              'sms10':['10','172.23.140.98',9010]}
 
 g_disk_stat = {'10.7.75.60': ['10.7.75.60', 1099511627776, 536870912, 536870912],
                '10.7.75.61': ['10.7.75.61', 1099511627776, 536870912, 536870912],
@@ -87,10 +90,10 @@ class IMonitorWebServices(ServiceBase):
     @rpc(_returns=Array(sms_loc_info))
     def getHalls(self):
         a = []
-        key_ls = g_sms_location.keys()
+        key_ls = g_sms_stat.keys()
         key_ls.sort()
         for i in key_ls:
-             a.append(g_sms_location[i])
+             a.append(g_sms_stat[i])
         return a
 
 
@@ -144,6 +147,8 @@ class IMonitorWebServices(ServiceBase):
             return 1
         elif is_health and db_stat != 0:
             return 2
+        else:
+            return 1
 
 
     @rpc(Unicode,_returns=Integer)
@@ -172,7 +177,8 @@ class IMonitorWebServices(ServiceBase):
 
 
 
-
+class mt_wsgi(SocketServer.ThreadingMixIn, simple_server.WSGIServer):
+    pass
 
 def webserverFun():
     soap_app = Application([IMonitorWebServices],
@@ -180,13 +186,17 @@ def webserverFun():
                            in_protocol=Soap11(validator="lxml"),
                            out_protocol=Soap11())
     wsgi_app = WsgiApplication(soap_app)
-    server = make_server(ip, port, wsgi_app)
+
+    # svr = simple_server.make_server(ip,port,wsgi_app)
+    svr = mt_wsgi((ip, port), simple_server.WSGIRequestHandler)
+    svr.set_app(wsgi_app)
     try:
-        server.serve_forever()
+        svr.serve_forever()
     finally:
-        server.server_close()
+        svr.server_close()
 
 
 
 if __name__ == '__main__':
+
     webserverFun()

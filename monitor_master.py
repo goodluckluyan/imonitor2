@@ -18,9 +18,11 @@ import getopt
 # from agent_monitor import LocalhostRole
 import StringIO
 import traceback
+import suds
 import agent_monitor
 import stat_manager
 import master_monitor
+
 
 
 from logging.handlers import RotatingFileHandler
@@ -342,7 +344,11 @@ class AgentMgr:
                         # 合并已经存在的take over
                         if 'take_over' in old_cmd.keys():
                             to_dict = old_cmd['take_over']
-                            new_dict = dict(take_sms.items()+to_dict.items())
+                            new_dict = dict(take_sms.items()+to_dict.items())#如果key相同会发生覆盖，如old_cmd['take_over']={'sms1':8}
+                                                                             #take_sms={'sms1':1},此条程序会把sms1设成8
+                            for cur_cmd_sms in take_sms.keys():#防止发生覆盖,再次赋值
+                                new_dict[cur_cmd_sms] = take_sms[cur_cmd_sms]
+
                             old_cmd['take_over'] = new_dict
                             take_sms = new_dict
                             take_over_txt = json.dumps(old_cmd)
@@ -956,6 +962,7 @@ def main(args,loger):
     webservice_th = Thread(target=spyne_webservice.webserverFun)
     webservice_th.start()
 
+    wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
     cnt = 0
     while True:
         # 定时更新sms的状态
@@ -966,10 +973,23 @@ def main(args,loger):
         all_run_sms = agent_mgr.get_all_run_sms()
         if not all_run_sms:
             continue
+        is_take_over = False
         for sms_id in all_run_sms:
-            spyne_webservice.g_sms_stat[sms_id][1] = all_run_sms[sms_id][1]#1 为sms的运行位置
+            if spyne_webservice.g_sms_stat[sms_id][1] != all_run_sms[sms_id][1]:
+                spyne_webservice.g_sms_stat[sms_id][1] = all_run_sms[sms_id][1]#1 为sms的运行位置
+                is_take_over = True
 
-        #每隔30秒输出一次排序后的状态
+        # 位置发生改变则通知web端
+        if is_take_over:
+            if wsclient:
+                wsclient.service.isSwitchHall(True)
+            else:
+                wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
+                wsclient.service.isSwitchHall(True)
+            log = 'sms location change and notice web'
+            loger.info(log)
+
+        # 每隔30秒输出一次排序后的状态
         cnt += 1
         if cnt % 3 == 0:
             db_stat = check_db_sync_stat()
