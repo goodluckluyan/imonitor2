@@ -145,8 +145,10 @@ class IMonitorWebServices(ServiceBase):
             return 0
         elif not is_health and db_stat == 0:
             return 1
-        elif is_health and db_stat != 0:
+        elif is_health and db_stat == 1:
             return 2
+        elif is_health and db_stat == 2:
+            return 3
         else:
             return 1
 
