@@ -5,7 +5,7 @@ import os
 
 if __name__ == '__main__':
    zkc = zkpython.ZKClient('localhost:2181')
-   node_ls = ['/scheduler/server','/scheduler/agent','/scheduler/agent/sms']
+   node_ls = ['/scheduler/server','/scheduler/task','/scheduler/agent','/scheduler/agent/sms']
    for node in node_ls:
 	   value = zkc.get_children(node)
 	   print '%s:%s'%(node,value)

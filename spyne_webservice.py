@@ -50,6 +50,8 @@ g_eth_stat =  {'10.7.75.60': ['10.7.75.60', 102400,10240],
 class MainObj:
     AgentMgr = None
     DB_Status = -1
+    HDFS_stat = -1
+    HDFS_DeadNode = []
 
 def setMainObj(obj):
     MainObj.AgentMgr = obj
@@ -63,6 +65,17 @@ def setDBSyncStat(db_stat):
 def getDBSyncStat():
     return MainObj.DB_Status
 
+def setHDFSStat(hdfs_stat):
+    MainObj.HDFS_stat = hdfs_stat
+
+def getHDFSStat():
+    return MainObj.HDFS_stat
+
+def setHDFSDeadNode(deadnode):
+    MainObj.HDFS_DeadNode = deadnode
+
+def getHDFSDeadNode():
+    return MainObj.HDFS_DeadNode
 
 class sms_loc_info(ComplexModel):
     hallid = Unicode(nillable=False)
@@ -135,19 +148,22 @@ class IMonitorWebServices(ServiceBase):
                 return 1
 
 
-    # return 0 :健康的 1：节点有问题  2：数据库不同步
+    # return 0 :健康  1：节点有问题  2：数据库不同步 3：对端ping不通
     @rpc(_returns=Integer)
     def getNodeHealthStat(self):
         agent_mgr = getMainObj()
         is_health = agent_mgr.getNodeHealthStat()
         db_stat = getDBSyncStat()
-        if is_health and db_stat == 0:
+        hdfs_stat = getHDFSStat()
+        if hdfs_stat > 0:
+            is_health = False
+        if is_health and db_stat == 0:#都正常的情况
             return 0
-        elif not is_health and db_stat == 0:
+        elif not is_health and db_stat == 0:#节点关闭或损坏和数据库正常的情况
             return 1
-        elif is_health and db_stat == 1:
+        elif is_health and db_stat == 1:#节点正常和数据库异常的情�?
             return 2
-        elif is_health and db_stat == 2:
+        elif is_health and db_stat == 2:#节点正常和对端ping不通的情况
             return 3
         else:
             return 1

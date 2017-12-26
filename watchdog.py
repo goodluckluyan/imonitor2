@@ -134,6 +134,8 @@ class watchdog:
         try:
             #print shcmd
             pip=os.popen(shcmd)
+            log="execute cmd %s"%(shcmd)
+            self.loger.info(log)
             ret=pip.readline()
             pip.close()
             return ret
@@ -258,8 +260,7 @@ class watchdog:
             except ValueError, ex:
                 ret = -1
 
-            if self.notify_fun:
-                self.notify_fun(ret,self.sms_stat)
+
 
             # writelogfile("ret %d,time interval:%d %d\n"%(ret,time.time(),runtm))
             if ret == 0:
@@ -322,6 +323,8 @@ class watchdog:
                 os.system("kill -9 %d" % ret)
                 tm = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
                 self.loger.info("%s: routine reboot(kill -9 %d)\n" % (tm, ret))
+            elif self.notify_fun:
+                self.notify_fun(ret,self.sms_stat)
 
             time.sleep(self.check_interval_sec)
 
@@ -334,6 +337,7 @@ class watchctrl:
         self.parent_msg_queue = msg_queue
         self.sms_pid = 0
         self.sms_stat = 0
+        self.null_pid_cnt = 0
         if self.parent_msg_queue:
             self.dog = watchdog(path, cmd, wsport, para, loger, self.notification, sms_name, b_fork)
         else:
@@ -345,10 +349,13 @@ class watchctrl:
         log = '%s watchctrl rec msg %d %d'%(self.name,pid,state)
         self.loger.info(log)
         if self.parent_msg_queue:
-            if pid <= 0 and self.sms_pid != 0:
-                msg = '{"delete":"%s"}' % (self.name)
-                self.parent_msg_queue.put(msg)
+            if pid <= 0 :
+                self.null_pid_cnt += 1
                 self.sms_pid = 0
+                if self.null_pid_cnt == 3:
+                    msg = '{"delete":"%s"}' % (self.name)
+                    self.parent_msg_queue.put(msg)
+                    self.null_pid_cnt = 0
             elif pid > 0 and self.sms_pid == 0 :
                 self.sms_stat = pid
                 msg = '{"regist":"%s"}' % (self.name)

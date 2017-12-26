@@ -33,14 +33,14 @@ from logging.handlers import RotatingFileHandler
 #                     filename='/usr/local/imonitor2/master.log',
 #                     filemode='w')
 
-# 定义一个StreamHandler，将INFO级别或更高的日志信息打印到标准错误，并将其添加到当前的日志处理对象#
+# 定义一个StreamHandler，将INFO级别或更高的日志信息打印到标准错误，并将其添加到当前的日志处理对象
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s')
 console.setFormatter(formatter)
 logging.getLogger('').addHandler(console)
 
-# 定义一个RotatingFileHandler，最多备份5个日志文件，每个日志文件最大10M
+# 定义一个RotatingFileHandler，最多备份5个日志文件，每个日志文件最多10M
 Rthandler = RotatingFileHandler('/usr/local/imonitor2/master.log', maxBytes=10 * 1024 * 1024, backupCount=5)
 Rthandler.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s')
@@ -88,7 +88,7 @@ class LocationMgr:
             return 0
 
     def get_sms_location(self,sms_name,prioirty,bcheck=True):
-        '''按优先顺序查找启动主机,prioirty:优先顺序就是启动顺序 ,bcheck 是否检测运行状态'''
+        '''按优先顺序查找启动主prioirty:优先顺序就是启动顺序 ,bcheck 是否检测运行状'''
         if sms_name not in self.location.keys() :
             return ''
         else:
@@ -108,7 +108,7 @@ class LocationMgr:
                             return agent
 
     def get_agent_runsms(self,agent_name,prioirty=0,bcheck=True):
-        '''获取主机上运行的sms的状态'''
+        '''获取主机上运行的sms的状'''
         runsms={}
         if agent_name not in self.agent_ls:
             return []
@@ -307,8 +307,16 @@ class AgentMgr:
                         log =  "check agent %s:%s timeout ,so start it "%(agent_name,host_ip)
                         self.loger.info(log)
 
-                        #始终检测
-                        self.start_agent(agent_name)
+                        #始终检测,如果当前agent在deadnode中则不启动
+                        deadnode = spyne_webservice.getHDFSDeadNode()
+                        if deadnode:
+                            log = 'find hdfs deadnode %s'%deadnode
+                            self.loger.info(log)
+                        if agent_name not in deadnode:
+                            self.start_agent(agent_name)
+                        else:
+                            log = 'cur %s in deadnode ,so not restart it '%agent_name
+                            self.loger.info(log)
                         self.agent_mgr[agent_name].restart_monitor(self.regist_timeout)
 
                     elif monitor_stat[0] == 'change':
@@ -326,7 +334,7 @@ class AgentMgr:
                         self.loger.info(log)
                         for sms in sms_ls:
                             agent_id, smsid =  sms.split('@')
-                            if  agent_id == agent_name:                       #只处理属于本主机的  smsid not in rum_sms_ls and
+                            if  agent_id == agent_name:                       #只处理属于本主机的 smsid not in rum_sms_ls and
                                 sms_node = '/scheduler/agent/sms/%s' % (sms)
                                 if sms_node not in self.watch_record.keys():
                                     sms_stat = self.zkctrl.get(sms_node,self.agent_mgr[agent_name].watcher_sms)
@@ -357,11 +365,11 @@ class AgentMgr:
                         else:
                             new_take_sms = "%s"%take_sms
                             new_take_sms = new_take_sms.replace('u','').replace("'",'"')
-                            take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)       # 因为old_cmd_txt 是一个完成的json，所以去掉两端的大于号
+                            take_over_txt = '{%s,"take_over":%s}'%(old_cmd_txt[1:-1],new_take_sms)       # 因为old_cmd_txt 是一个完成的json，所以去掉两端的大于�?
                         self.zkctrl.set('/scheduler/task/%s' % agent_name, take_over_txt)                # 更新task的状态
                         self.agent_cmd_txt[agent_name] = take_over_txt
 
-                        # 对/scheduler/agent/sms添加wather
+                        # /scheduler/agent/sms添加watcher
                         watcher_name = '%s@/scheduler/agent/sms'%agent_name
                         if watcher_name not in self.watch_record.keys():
                             self.zkctrl.get_children('/scheduler/agent/sms',
@@ -401,7 +409,7 @@ class AgentMgr:
                     elif monitor_stat[0] == 'startup_sms':
                         self.agent_stat.update_agent_state(agent_name,"switching")
 
-                        #如果没有命令字，则生成一个
+                        #如果没有命令字，则生成
                         if agent_name not in self.agent_cmd_txt.keys() :
                             all_sms_dict = {}
                             all_sms  = self.agent_stat.get_sms_name()
@@ -621,6 +629,7 @@ class MasterMgr:
         self.otherhost_regist_timeout = 0
         self.role = '' #角色有： leader,follower,onlyleader,takeover_leader
         self.otherhost_stat_master = ''
+        self.ingest_dog_boot = False
 
 
         # 开启导片sms
@@ -630,9 +639,13 @@ class MasterMgr:
         if localhost=='master1':
             self.role = 'onlyleader'
             agent_monitor.setLocalhostRole(self.role)
-            self.ingest_dog.start()
         else:
             self.role = ''
+
+    def start_ingest_sms(self):
+        if (self.localhost == 'master1' or self.role == 'takeover_leader') and not self.ingest_dog_boot:
+            self.ingest_dog.start()
+            self.ingest_dog_boot = True
 
     def set_setstatmatrix_fun(self,set_stat_master_fun):
         self.set_stat_master_fun = set_stat_master_fun
@@ -691,7 +704,7 @@ class MasterMgr:
                             if self.start_agent_monitor:#接管后重新对所有的agent进行注册
                                 self.start_agent_monitor()
                             self.role = 'takeover_leader'
-                            self.ingest_dog.start()
+                            #self.ingest_dog.start()
                         log = "check agent %s:%s timeout ,so start it " % (agent_name, self.otherhost)
                         self.loger.info(log)
 
@@ -735,6 +748,7 @@ class MasterMgr:
         self.host_mgr.start_monitor()
         self.process_th.start()
 
+
     # 通过ssh启动对端的master
     def start_other_master(self, ip):
         cmd = 'ssh root@%s "python /usr/local/imonitor2/monitor_master.py 1>/dev/null &"' % ip
@@ -745,7 +759,7 @@ class MasterMgr:
 # 成为守护进程
 def daemonize(stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
     '''Fork当前进程为守护进程，重定向标准文件描述符
-        （默认情况下定向到/dev/null）'''
+        （默认情况下定向/dev/null'''
 
     # Perform first fork.
     try:
@@ -801,6 +815,11 @@ def check_db_sync_stat():
     stat = ret >> 8 & 0xff
     return stat
 
+def checkhdfs_stat():
+    f = os.popen("hdfs dfsadmin -report |grep -A 100 'Dead'| grep -E 'Hostname*'")
+    hostname = f.readlines()
+    f.close()
+    return hostname
 def usage():
     print 'sms_watchdog usage:'
     print '-h,--help: print help message.'
@@ -859,7 +878,7 @@ def main(args,loger):
         else:
             bRun = False
 
-    # 如果锁文件存在并且/var/run/imonitor_master.pid中记录的pid在运行，则不运行些脚本
+    # 如果锁文件存在并/var/run/imonitor_master.pid中记录的pid在运行，则不运行些脚本
     if bFileExits and bRun:
         print "Service Is Running<pid:%d>!" % prepid
         return
@@ -867,7 +886,7 @@ def main(args,loger):
     # 成为守护进程
     #daemonize()
 
-    # 装此进程的pid写到/var/run/oristar_sms_server.pid中
+    # 将此进程的pid写到/var/run/oristar_sms_server.pid
     writepidfile(pidfile)
     os.system('touch %s' % filelock)
 
@@ -912,7 +931,7 @@ def main(args,loger):
         zkctl.create(server_node_name, "", 1)
 
 
-    # 创建master管理实例，并启动对/scheduler/server节点的监控
+    # 创建master管理实例，并启动/scheduler/server节点的监测
     master_node = cfg['MasterNode']
     other_master_host = ''
     for host in master_node:
@@ -939,7 +958,7 @@ def main(args,loger):
     master_mgr = MasterMgr(localhost_name, other_master_host, zkctl, regist_timeout, ingest_sms, loger)
     master_mgr.start_monitor()
 
-    # 创建agent管理实例，并启动对/scheduler/agent节点的监控
+    # 创建agent管理实例，并启动�?scheduler/agent节点的监控
     agent_mgr = AgentMgr(agent_ls,localhost_name,location_mgr, zkctl,
                          timeout['slaver_regist'],loger)
 
@@ -961,11 +980,14 @@ def main(args,loger):
     spyne_webservice.setMainObj(agent_mgr)
     webservice_th = Thread(target=spyne_webservice.webserverFun)
     webservice_th.start()
-
-    wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
+    try:
+        wsclient = suds.client.Client('http://127.0.0.1/sms/webservice/wsnotice?wsdl')
+    except:
+        log = 'open http://127.0.0.1/sms/webservice/wsnotice?wsdl failed'
+        loger.info(log)
     cnt = 0
     while True:
-        # 定时更新sms的状态
+        # 定时更新sms的状�?
         time.sleep(2)
         zkctl.async('/scheduler')
 
@@ -982,7 +1004,7 @@ def main(args,loger):
                 loger.info(log)
                 is_take_over = True
 
-        # 位置发生改变则通知web端
+        # 位置发生改变则通知web
         if is_take_over:
             try:
 
@@ -1002,6 +1024,18 @@ def main(args,loger):
         if cnt % 3 == 0:
             db_stat = check_db_sync_stat()
             spyne_webservice.setDBSyncStat(db_stat)
+            deadnode = checkhdfs_stat()
+            deadname=[]
+            if deadnode:
+                for name in deadnode:
+                    deadname.append(name.split(' ')[1][:-1])
+            log = 'check hdfs dead stat:%s(%s:%d)'%(deadnode,deadname,len(deadname))
+            loger.info(log)
+            spyne_webservice.setHDFSStat(len(deadname))
+            spyne_webservice.setHDFSDeadNode(deadname)
+            if agent_mgr.getNodeHealthStat() :
+                master_mgr.start_ingest_sms()
+	    
         if cnt % 15 == 0:
             log = 'all sms run stat:%s'%[(k,all_run_sms[k]) for k in sorted(all_run_sms.keys())]
             loger.info(log)

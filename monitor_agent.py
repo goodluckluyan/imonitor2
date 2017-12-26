@@ -114,6 +114,7 @@ class EventMgr:
                             self.loger.info(log)
                             self.zkctrl.create(path, '1', 1)
 
+
                     #  进程丢失
                     if cmd == 'delete':
                         hallid = self.task[cmd]
@@ -179,6 +180,7 @@ class EventMgr:
 
         for hallid in new_sms_stat:
             if new_sms_stat[hallid] != self.sms_stat[hallid]:
+                self.lock.acquire()
                 log = '%s stat change(%s->%s) '%(hallid,self.sms_stat[hallid],new_sms_stat[hallid])
                 self.loger.info(log)
                 path = '/scheduler/agent/sms/%s@%s' % (self.hostname,hallid)
@@ -187,6 +189,9 @@ class EventMgr:
                     log =  'set %s'%path,new_sms_stat[hallid]
                     self.loger.info(log)
                     zk.set(path,'%s'%new_sms_stat[hallid])
+                else:
+                    zk.create(path,'%s'%new_sms_stat[hallid],1)
+                self.lock.release()
 
 
 
