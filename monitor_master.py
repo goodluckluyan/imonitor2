@@ -591,9 +591,10 @@ class AgentMgr:
         self.zkctrl.async('/scheduler/task')
         for agent_id in self.agent_cmd_txt:
             task_node = '/scheduler/task/%s' % agent_id
-            self.zkctrl.create(task_node,self.agent_cmd_txt[agent_id], 1)
-            log = 'rebuild %s node'%(task_node)
-            self.loger.info(log)
+            if not self.zkctrl.exists(task_node):
+                self.zkctrl.create(task_node,self.agent_cmd_txt[agent_id], 1)
+                log = 'rebuild %s node'%(task_node)
+                self.loger.info(log)
         self.watch_record = {}
 
     def del_task_node(self):
@@ -677,12 +678,14 @@ class MasterMgr:
                             agent_monitor.setLocalhostRole('follower')
                         elif self.role == 'takeover_leader':
                             agent_monitor.setLocalhostRole('follower')
-                            self.ingest_dog.stop()
-                            self.ingest_dog.kill()
+                            if self.ingest_dog_boot:
+                                self.ingest_dog.stop()
+                                self.ingest_dog.kill()
 
                             # 删除task，让master1创建
                             self.del_task_node_fun()
-                            self.role == 'follower'
+                            self.role = 'follower'
+                            self.ingest_dog_boot = False
 
                         self.otherhost_regist_timeout = 0
                         if len(monitor_stat) == 2:
@@ -820,6 +823,17 @@ def checkhdfs_stat():
     hostname = f.readlines()
     f.close()
     return hostname
+
+def check_db_sync_second():
+    f = os.popen("mysql -uroot -p123456 -e 'show slave status\G'|grep Seconds_Behind_Master|awk -F ': ' '{print $2}'")
+    seconds = f.readlines()
+    f.close()
+    if len(seconds)>0:
+        seconds=seconds[0]
+        return int(seconds[:-1])
+    else:
+        return -1
+
 def usage():
     print 'sms_watchdog usage:'
     print '-h,--help: print help message.'
@@ -958,7 +972,7 @@ def main(args,loger):
     master_mgr = MasterMgr(localhost_name, other_master_host, zkctl, regist_timeout, ingest_sms, loger)
     master_mgr.start_monitor()
 
-    # 创建agent管理实例，并启动�?scheduler/agent节点的监控
+    # 创建agent管理实例，并启动/scheduler/agent节点的监控
     agent_mgr = AgentMgr(agent_ls,localhost_name,location_mgr, zkctl,
                          timeout['slaver_regist'],loger)
 
@@ -986,6 +1000,7 @@ def main(args,loger):
         log = 'open http://127.0.0.1/sms/webservice/wsnotice?wsdl failed'
         loger.info(log)
     cnt = 0
+    boot_ingest_sms_delay = 0
     while True:
         # 定时更新sms的状�?
         time.sleep(2)
@@ -1033,8 +1048,15 @@ def main(args,loger):
             loger.info(log)
             spyne_webservice.setHDFSStat(len(deadname))
             spyne_webservice.setHDFSDeadNode(deadname)
-            if agent_mgr.getNodeHealthStat() :
+            if (agent_mgr.getNodeHealthStat() and check_db_sync_second() == 0 ) or boot_ingest_sms_delay > 10:
                 master_mgr.start_ingest_sms()
+            else:
+                health  = agent_mgr.getNodeHealthStat()
+                second = check_db_sync_second()
+                log = 'node health:%s db sync second:%d delay cnt:%d,so delay boot ingest sms'%(health,second,boot_ingest_sms_delay)
+                loger.info(log)
+                boot_ingest_sms_delay += 1
+
 	    
         if cnt % 15 == 0:
             log = 'all sms run stat:%s'%[(k,all_run_sms[k]) for k in sorted(all_run_sms.keys())]
