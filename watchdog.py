@@ -352,6 +352,8 @@ class watchctrl:
             if pid <= 0 :
                 self.null_pid_cnt += 1
                 self.sms_pid = 0
+                log = '%s pid == 0 so null_pid_cnt +1=%d'%(self.name,self.null_pid_cnt)
+                self.loger.info(log)
                 if self.null_pid_cnt == 3:
                     msg = '{"delete":"%s"}' % (self.name)
                     self.parent_msg_queue.put(msg)
@@ -361,6 +363,7 @@ class watchctrl:
                 msg = '{"regist":"%s"}' % (self.name)
                 self.parent_msg_queue.put(msg)
                 self.sms_pid = pid
+                self.null_pid_cnt = 0
 
     def start(self):
         #self.wt.setDaemon(True)
